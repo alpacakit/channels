@@ -1,15 +1,15 @@
 import type { JsonValue, RuntimeCodec } from "@alpacaloop/core";
 import type { z } from "zod";
 
-export const CHANNEL_PARAMETER_PRESENCE = {
+export const PARAMETER_PRESENCE = {
   required: "required",
   optional: "optional",
 } as const;
 
-export type ChannelParameterPresence =
-  (typeof CHANNEL_PARAMETER_PRESENCE)[keyof typeof CHANNEL_PARAMETER_PRESENCE];
+export type ParameterPresence =
+  (typeof PARAMETER_PRESENCE)[keyof typeof PARAMETER_PRESENCE];
 
-export const CHANNEL_VALUE_SHAPE_KIND = {
+export const VALUE_SHAPE_KIND = {
   string: "string",
   boolean: "boolean",
   positiveInteger: "positive_integer",
@@ -17,56 +17,53 @@ export const CHANNEL_VALUE_SHAPE_KIND = {
   array: "array",
 } as const;
 
-export type ChannelValueShape =
-  | { readonly kind: typeof CHANNEL_VALUE_SHAPE_KIND.string }
-  | { readonly kind: typeof CHANNEL_VALUE_SHAPE_KIND.boolean }
-  | { readonly kind: typeof CHANNEL_VALUE_SHAPE_KIND.positiveInteger }
+export type ValueShape =
+  | { readonly kind: typeof VALUE_SHAPE_KIND.string }
+  | { readonly kind: typeof VALUE_SHAPE_KIND.boolean }
+  | { readonly kind: typeof VALUE_SHAPE_KIND.positiveInteger }
   | {
-      readonly kind: typeof CHANNEL_VALUE_SHAPE_KIND.stringEnum;
+      readonly kind: typeof VALUE_SHAPE_KIND.stringEnum;
       readonly values: readonly string[];
     }
   | {
-      readonly kind: typeof CHANNEL_VALUE_SHAPE_KIND.array;
-      readonly element: ChannelValueShape;
+      readonly kind: typeof VALUE_SHAPE_KIND.array;
+      readonly element: ValueShape;
     };
 
-export interface ChannelValueCodec<Value extends JsonValue>
+export interface ValueCodec<Value extends JsonValue>
   extends RuntimeCodec<Value> {
   readonly schema: z.ZodType<Value>;
-  readonly shape: ChannelValueShape;
+  readonly shape: ValueShape;
 }
 
-export type ChannelParameterRequirement<Value extends JsonValue> =
+export type ParameterRequirement<Value extends JsonValue> =
   | {
-      readonly presence: typeof CHANNEL_PARAMETER_PRESENCE.required;
+      readonly presence: typeof PARAMETER_PRESENCE.required;
       readonly defaultValue: undefined;
     }
   | {
-      readonly presence: typeof CHANNEL_PARAMETER_PRESENCE.optional;
+      readonly presence: typeof PARAMETER_PRESENCE.optional;
       readonly defaultValue: Value | undefined;
     };
 
-export interface ChannelParameterDefinition<
+export interface ParameterDefinition<
   Name extends string,
   Value extends JsonValue,
 > {
   readonly name: Name;
-  readonly codec: ChannelValueCodec<Value>;
-  readonly requirement: ChannelParameterRequirement<Value>;
+  readonly codec: ValueCodec<Value>;
+  readonly requirement: ParameterRequirement<Value>;
   readonly description: string;
 }
 
-export type ChannelParameterSet = readonly ChannelParameterDefinition<
-  string,
-  JsonValue
->[];
+export type ParameterSet = readonly ParameterDefinition<string, JsonValue>[];
 
-export type ChannelRawValueMap = {
+export type RawValueMap = {
   readonly [key: string]: unknown;
 };
 
-export type ChannelParameterValues<Parameters extends ChannelParameterSet> = {
-  readonly [Parameter in Parameters[number] as Parameter["name"]]?: Parameter extends ChannelParameterDefinition<
+export type ParameterValues<Parameters extends ParameterSet> = {
+  readonly [Parameter in Parameters[number] as Parameter["name"]]?: Parameter extends ParameterDefinition<
     string,
     infer Value
   >
@@ -74,78 +71,60 @@ export type ChannelParameterValues<Parameters extends ChannelParameterSet> = {
     : never;
 };
 
-export interface ChannelEntryDefinition<
+export interface EntryDefinition<
   Name extends string,
-  Parameters extends ChannelParameterSet,
+  Parameters extends ParameterSet,
   Projection,
 > {
   readonly name: Name;
   readonly parameters: Parameters;
-  project(input: {
-    readonly values: ChannelParameterValues<Parameters>;
-  }): Projection;
+  project(input: { readonly values: ParameterValues<Parameters> }): Projection;
 }
 
-export function defineChannelParameter<
+export function defineParameter<
   const Name extends string,
   Value extends JsonValue,
 >(
-  parameter: ChannelParameterDefinition<Name, Value>,
-): ChannelParameterDefinition<Name, Value> {
+  parameter: ParameterDefinition<Name, Value>,
+): ParameterDefinition<Name, Value> {
   return parameter;
 }
 
-export function defineChannelEntry<
+export function defineEntry<
   const Name extends string,
-  const Parameters extends ChannelParameterSet,
+  const Parameters extends ParameterSet,
   Projection,
 >(
-  entry: ChannelEntryDefinition<Name, Parameters, Projection>,
-): ChannelEntryDefinition<Name, Parameters, Projection> {
+  entry: EntryDefinition<Name, Parameters, Projection>,
+): EntryDefinition<Name, Parameters, Projection> {
   return entry;
 }
 
-export function requiredChannelParameter<
+export function required<
   Value extends JsonValue,
->(): ChannelParameterRequirement<Value> {
+>(): ParameterRequirement<Value> {
   return {
-    presence: CHANNEL_PARAMETER_PRESENCE.required,
+    presence: PARAMETER_PRESENCE.required,
     defaultValue: undefined,
   };
 }
 
-export function optionalChannelParameter<Value extends JsonValue>(
-  defaultValue?: Value,
-): ChannelParameterRequirement<Value> {
+export function optional<Value extends JsonValue>(
+  input: { readonly default?: Value } = {},
+): ParameterRequirement<Value> {
   return {
-    presence: CHANNEL_PARAMETER_PRESENCE.optional,
-    defaultValue,
+    presence: PARAMETER_PRESENCE.optional,
+    defaultValue: input.default,
   };
 }
 
-export function projectChannelEntry<
+export function projectEntry<
   const Name extends string,
-  const Parameters extends ChannelParameterSet,
+  const Parameters extends ParameterSet,
   Projection,
 >(
-  entry: ChannelEntryDefinition<Name, Parameters, Projection>,
-  values: ChannelParameterValues<Parameters>,
+  entry: EntryDefinition<Name, Parameters, Projection>,
+  values: ParameterValues<Parameters>,
 ): Projection {
   return entry.project({ values });
-}
-
-export function findChannelParameter<
-  const Parameters extends ChannelParameterSet,
->(parameters: Parameters, name: string): Parameters[number] | null {
-  return parameters.find((parameter) => parameter.name === name) ?? null;
-}
-
-export function requireChannelParameter<
-  const Parameters extends ChannelParameterSet,
->(parameters: Parameters, name: string): Parameters[number] {
-  const parameter = findChannelParameter(parameters, name);
-  if (parameter === null) {
-    throw new Error(`Unknown channel parameter binding: ${name}`);
-  }
-  return parameter;
 }

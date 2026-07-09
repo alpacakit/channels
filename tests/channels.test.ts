@@ -1,75 +1,71 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
-  booleanChannelValueCodec,
-  defineChannelEntry,
-  defineChannelParameter,
-  optionalChannelParameter,
-  positiveIntegerChannelValueCodec,
-  projectChannelEntry,
-  stringChannelValueCodec,
-  stringEnumListChannelValueCodec,
-  stringListChannelValueCodec,
+  codecs,
+  defineEntry,
+  defineParameter,
+  optional,
+  projectEntry,
 } from "../src/index.js";
 import {
-  CHANNEL_CLI_BOOLEAN_MODE,
-  CHANNEL_CLI_VALUE_KIND,
-  createCliChannelOptions,
-  defineCliChannelBinding,
-  readCliChannelParameterValues,
+  CLI_BOOLEAN_MODE,
+  CLI_VALUE_KIND,
+  createCliOptions,
+  defineCliBinding,
+  parseCliValues,
 } from "../src/cli.js";
 import {
-  createMcpChannelInputSchema,
-  defineMcpChannelBinding,
-  readMcpChannelParameterValues,
+  createMcpInputSchema,
+  defineMcpBinding,
+  parseMcpValues,
 } from "../src/mcp.js";
 
 const TestIntentValues = ["add-field", "cli-change"] as const;
 
-const TestEntry = defineChannelEntry({
+const TestEntry = defineEntry({
   name: "hint",
   parameters: [
-    defineChannelParameter({
+    defineParameter({
       name: "symbol",
-      codec: stringListChannelValueCodec(),
-      requirement: optionalChannelParameter(),
+      codec: codecs.stringList(),
+      requirement: optional(),
       description: "Exact symbol name",
     }),
-    defineChannelParameter({
+    defineParameter({
       name: "intent",
-      codec: stringEnumListChannelValueCodec(TestIntentValues),
-      requirement: optionalChannelParameter(),
+      codec: codecs.stringEnumList(TestIntentValues),
+      requirement: optional(),
       description: "Intent filter",
     }),
-    defineChannelParameter({
+    defineParameter({
       name: "exported",
-      codec: booleanChannelValueCodec(),
-      requirement: optionalChannelParameter(),
+      codec: codecs.boolean(),
+      requirement: optional(),
       description: "Exported filter",
     }),
-    defineChannelParameter({
+    defineParameter({
       name: "depth",
-      codec: positiveIntegerChannelValueCodec({ max: 5 }),
-      requirement: optionalChannelParameter(2),
+      codec: codecs.positiveInteger({ max: 5 }),
+      requirement: optional({ default: 2 }),
       description: "Traversal depth",
     }),
-    defineChannelParameter({
+    defineParameter({
       name: "verbose",
-      codec: booleanChannelValueCodec(),
-      requirement: optionalChannelParameter(false),
+      codec: codecs.boolean(),
+      requirement: optional({ default: false }),
       description: "Verbose logging",
     }),
-    defineChannelParameter({
+    defineParameter({
       name: "internalOnly",
-      codec: stringChannelValueCodec(),
-      requirement: optionalChannelParameter(),
+      codec: codecs.string(),
+      requirement: optional(),
       description: "Hidden from MCP",
     }),
   ],
   project: ({ values }) => values,
 });
 
-const TestCliBinding = defineCliChannelBinding({
+const TestCliBinding = defineCliBinding({
   parameters: [
     {
       parameterName: "symbol",
@@ -94,7 +90,7 @@ const TestCliBinding = defineCliChannelBinding({
   ],
 });
 
-const TestMcpBinding = defineMcpChannelBinding({
+const TestMcpBinding = defineMcpBinding({
   parameters: [
     { parameterName: "symbol" },
     { parameterName: "intent" },
@@ -105,42 +101,42 @@ const TestMcpBinding = defineMcpChannelBinding({
 describe("@alpacaloop/channels CLI binding", () => {
   it("generates CLI metadata and normalizes raw CLI values", () => {
     expect(
-      createCliChannelOptions({ entry: TestEntry, binding: TestCliBinding }),
+      createCliOptions({ entry: TestEntry, binding: TestCliBinding }),
     ).toEqual([
       expect.objectContaining({
         name: "symbol",
         flags: ["--symbol"],
-        kind: CHANNEL_CLI_VALUE_KIND.string,
+        kind: CLI_VALUE_KIND.string,
         multiple: true,
       }),
       expect.objectContaining({
         name: "intent",
         choices: ["add-field", "cli-change"],
-        kind: CHANNEL_CLI_VALUE_KIND.stringEnum,
+        kind: CLI_VALUE_KIND.stringEnum,
         multiple: true,
       }),
       expect.objectContaining({
         name: "exported",
         choices: [],
-        kind: CHANNEL_CLI_VALUE_KIND.boolean,
-        booleanMode: CHANNEL_CLI_BOOLEAN_MODE.value,
+        kind: CLI_VALUE_KIND.boolean,
+        booleanMode: CLI_BOOLEAN_MODE.value,
         multiple: false,
       }),
       expect.objectContaining({
         name: "depth",
         defaultValue: 2,
-        kind: CHANNEL_CLI_VALUE_KIND.positiveInteger,
+        kind: CLI_VALUE_KIND.positiveInteger,
       }),
       expect.objectContaining({
         name: "verbose",
-        kind: CHANNEL_CLI_VALUE_KIND.boolean,
-        booleanMode: CHANNEL_CLI_BOOLEAN_MODE.flag,
+        kind: CLI_VALUE_KIND.boolean,
+        booleanMode: CLI_BOOLEAN_MODE.flag,
         defaultValue: false,
         multiple: false,
       }),
     ]);
 
-    const values = readCliChannelParameterValues({
+    const values = parseCliValues({
       entry: TestEntry,
       binding: TestCliBinding,
       raw: {
@@ -150,7 +146,7 @@ describe("@alpacaloop/channels CLI binding", () => {
       },
     });
 
-    expect(projectChannelEntry(TestEntry, values)).toEqual({
+    expect(projectEntry(TestEntry, values)).toEqual({
       symbol: ["AdapterContext"],
       intent: ["add-field"],
       exported: false,
@@ -162,7 +158,7 @@ describe("@alpacaloop/channels CLI binding", () => {
 
 describe("@alpacaloop/channels MCP binding", () => {
   it("generates an exposed-parameter input schema and normalizes arguments", () => {
-    const schema = createMcpChannelInputSchema({
+    const schema = createMcpInputSchema({
       entry: TestEntry,
       binding: TestMcpBinding,
     });
@@ -192,7 +188,7 @@ describe("@alpacaloop/channels MCP binding", () => {
     });
     expect(z.object(schema).safeParse({ depth: 6 }).success).toBe(false);
 
-    const values = readMcpChannelParameterValues({
+    const values = parseMcpValues({
       entry: TestEntry,
       binding: TestMcpBinding,
       raw: { symbol: ["AdapterContext"] },

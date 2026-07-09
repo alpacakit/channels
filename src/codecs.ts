@@ -4,16 +4,12 @@ import {
   type JsonValue,
 } from "@alpacaloop/core";
 import { z } from "zod";
-import {
-  CHANNEL_VALUE_SHAPE_KIND,
-  type ChannelValueCodec,
-  type ChannelValueShape,
-} from "./model.js";
+import { VALUE_SHAPE_KIND, type ValueCodec, type ValueShape } from "./model.js";
 
-export function defineChannelValueCodec<Value extends JsonValue>(input: {
+function defineValueCodec<Value extends JsonValue>(input: {
   readonly schema: z.ZodType<Value>;
-  readonly shape: ChannelValueShape;
-}): ChannelValueCodec<Value> {
+  readonly shape: ValueShape;
+}): ValueCodec<Value> {
   const codec = createSchemaRuntimeCodec(input.schema);
   return {
     schema: input.schema,
@@ -23,66 +19,74 @@ export function defineChannelValueCodec<Value extends JsonValue>(input: {
   };
 }
 
-export function stringChannelValueCodec(): ChannelValueCodec<string> {
-  return defineChannelValueCodec({
+function stringCodec(): ValueCodec<string> {
+  return defineValueCodec({
     schema: z.string(),
-    shape: { kind: CHANNEL_VALUE_SHAPE_KIND.string },
+    shape: { kind: VALUE_SHAPE_KIND.string },
   });
 }
 
-export function booleanChannelValueCodec(): ChannelValueCodec<boolean> {
-  return defineChannelValueCodec({
+function booleanCodec(): ValueCodec<boolean> {
+  return defineValueCodec({
     schema: z.boolean(),
-    shape: { kind: CHANNEL_VALUE_SHAPE_KIND.boolean },
+    shape: { kind: VALUE_SHAPE_KIND.boolean },
   });
 }
 
-export function positiveIntegerChannelValueCodec(
+function positiveIntegerCodec(
   input: { readonly max: number | null } = { max: null },
-): ChannelValueCodec<number> {
+): ValueCodec<number> {
   const base = z.number().int().positive();
-  return defineChannelValueCodec({
+  return defineValueCodec({
     schema: (input.max === null
       ? base
       : base.max(input.max)) as z.ZodType<number>,
-    shape: { kind: CHANNEL_VALUE_SHAPE_KIND.positiveInteger },
+    shape: { kind: VALUE_SHAPE_KIND.positiveInteger },
   });
 }
 
-export function stringEnumChannelValueCodec<
-  const Values extends readonly [string, ...string[]],
->(values: Values): ChannelValueCodec<Values[number]> {
-  return defineChannelValueCodec({
+function stringEnumCodec<const Values extends readonly [string, ...string[]]>(
+  values: Values,
+): ValueCodec<Values[number]> {
+  return defineValueCodec({
     schema: z.enum(values) as z.ZodType<Values[number]>,
     shape: {
-      kind: CHANNEL_VALUE_SHAPE_KIND.stringEnum,
+      kind: VALUE_SHAPE_KIND.stringEnum,
       values,
     },
   });
 }
 
-export function stringEnumListChannelValueCodec<
+function stringEnumListCodec<
   const Values extends readonly [string, ...string[]],
->(values: Values): ChannelValueCodec<readonly Values[number][]> {
-  const element = stringEnumChannelValueCodec(values);
-  return defineChannelValueCodec({
+>(values: Values): ValueCodec<readonly Values[number][]> {
+  const element = stringEnumCodec(values);
+  return defineValueCodec({
     schema: readonlyArraySchema(element.schema),
     shape: {
-      kind: CHANNEL_VALUE_SHAPE_KIND.array,
+      kind: VALUE_SHAPE_KIND.array,
       element: element.shape,
     },
   });
 }
 
-export function stringListChannelValueCodec(): ChannelValueCodec<
-  readonly string[]
-> {
-  const element = stringChannelValueCodec();
-  return defineChannelValueCodec({
+function stringListCodec(): ValueCodec<readonly string[]> {
+  const element = stringCodec();
+  return defineValueCodec({
     schema: readonlyArraySchema(element.schema),
     shape: {
-      kind: CHANNEL_VALUE_SHAPE_KIND.array,
+      kind: VALUE_SHAPE_KIND.array,
       element: element.shape,
     },
   });
 }
+
+export const codecs = {
+  define: defineValueCodec,
+  string: stringCodec,
+  stringList: stringListCodec,
+  boolean: booleanCodec,
+  positiveInteger: positiveIntegerCodec,
+  stringEnum: stringEnumCodec,
+  stringEnumList: stringEnumListCodec,
+};

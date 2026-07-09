@@ -1,43 +1,41 @@
 import { CODEC_DECODE_RESULT_KIND, type JsonValue } from "@alpacaloop/core";
 import type { z } from "zod";
 import {
-  CHANNEL_PARAMETER_PRESENCE,
-  requireChannelParameter,
-  type ChannelEntryDefinition,
-  type ChannelParameterSet,
-  type ChannelParameterValues,
-  type ChannelRawValueMap,
+  PARAMETER_PRESENCE,
+  type EntryDefinition,
+  type ParameterSet,
+  type ParameterValues,
+  type RawValueMap,
 } from "./model.js";
+import { requireParameter } from "./internal.js";
 
-export interface ChannelMcpParameterBinding<Name extends string = string> {
+export interface McpParameterBinding<Name extends string = string> {
   readonly parameterName: Name;
 }
 
-export interface ChannelMcpBinding<
-  Parameters extends ChannelParameterSet = ChannelParameterSet,
-> {
-  readonly parameters: readonly ChannelMcpParameterBinding<
+export interface McpBinding<Parameters extends ParameterSet = ParameterSet> {
+  readonly parameters: readonly McpParameterBinding<
     Parameters[number]["name"]
   >[];
 }
 
-export function defineMcpChannelBinding<
-  const Parameters extends ChannelParameterSet,
->(binding: ChannelMcpBinding<Parameters>): ChannelMcpBinding<Parameters> {
+export function defineMcpBinding<const Parameters extends ParameterSet>(
+  binding: McpBinding<Parameters>,
+): McpBinding<Parameters> {
   return binding;
 }
 
-export function createMcpChannelInputSchema<
+export function createMcpInputSchema<
   const Name extends string,
-  const Parameters extends ChannelParameterSet,
+  const Parameters extends ParameterSet,
   Projection,
 >(input: {
-  readonly entry: ChannelEntryDefinition<Name, Parameters, Projection>;
-  readonly binding: ChannelMcpBinding<Parameters>;
+  readonly entry: EntryDefinition<Name, Parameters, Projection>;
+  readonly binding: McpBinding<Parameters>;
 }): Record<string, z.ZodType> {
   const shape: Record<string, z.ZodType> = {};
   for (const row of input.binding.parameters) {
-    const parameter = requireChannelParameter(
+    const parameter = requireParameter(
       input.entry.parameters,
       row.parameterName,
     );
@@ -45,25 +43,25 @@ export function createMcpChannelInputSchema<
       parameter.description,
     );
     shape[parameter.name] =
-      parameter.requirement.presence === CHANNEL_PARAMETER_PRESENCE.optional
+      parameter.requirement.presence === PARAMETER_PRESENCE.optional
         ? describedSchema.optional()
         : describedSchema;
   }
   return shape;
 }
 
-export function readMcpChannelParameterValues<
+export function parseMcpValues<
   const Name extends string,
-  const Parameters extends ChannelParameterSet,
+  const Parameters extends ParameterSet,
   Projection,
 >(input: {
-  readonly entry: ChannelEntryDefinition<Name, Parameters, Projection>;
-  readonly binding: ChannelMcpBinding<Parameters>;
-  readonly raw: ChannelRawValueMap;
-}): ChannelParameterValues<Parameters> {
+  readonly entry: EntryDefinition<Name, Parameters, Projection>;
+  readonly binding: McpBinding<Parameters>;
+  readonly raw: RawValueMap;
+}): ParameterValues<Parameters> {
   const output = new Map<string, JsonValue>();
   for (const row of input.binding.parameters) {
-    const parameter = requireChannelParameter(
+    const parameter = requireParameter(
       input.entry.parameters,
       row.parameterName,
     );
@@ -81,5 +79,5 @@ export function readMcpChannelParameterValues<
     }
     output.set(parameter.name, decoded.value);
   }
-  return Object.fromEntries(output) as ChannelParameterValues<Parameters>;
+  return Object.fromEntries(output) as ParameterValues<Parameters>;
 }
