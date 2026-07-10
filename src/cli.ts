@@ -23,9 +23,6 @@ export const CLI_BOOLEAN_MODE = {
   value: "value",
 } as const;
 
-export type CliBooleanMode =
-  (typeof CLI_BOOLEAN_MODE)[keyof typeof CLI_BOOLEAN_MODE];
-
 export interface CliParameterBinding<Name extends string = string> {
   readonly parameterName: Name;
   readonly flags: readonly string[];
@@ -37,16 +34,224 @@ export interface CliBinding<Parameters extends ParameterSet = ParameterSet> {
   >[];
 }
 
-export type CliOptionDescriptor = {
+type CliOptionDescriptorBase<Kind extends CliValueKind> = {
   readonly name: string;
   readonly flags: readonly string[];
   readonly description: string;
-  readonly kind: CliValueKind;
-  readonly multiple: boolean;
-  readonly choices: readonly string[];
-  readonly booleanMode: CliBooleanMode | null;
-  readonly defaultValue: JsonValue | undefined;
+  readonly kind: Kind;
 };
+
+export type CliStringOptionDescriptor = CliOptionDescriptorBase<
+  typeof CLI_VALUE_KIND.string
+> & {
+  readonly multiple: false;
+  readonly choices: readonly [];
+  readonly booleanMode: null;
+  readonly valueName: string;
+  readonly defaultValue: string | null;
+};
+
+export type CliRepeatedStringOptionDescriptor = CliOptionDescriptorBase<
+  typeof CLI_VALUE_KIND.string
+> & {
+  readonly multiple: true;
+  readonly choices: readonly [];
+  readonly booleanMode: null;
+  readonly valueName: string;
+  readonly defaultValue: readonly string[] | null;
+};
+
+export type CliStringEnumOptionDescriptor = CliOptionDescriptorBase<
+  typeof CLI_VALUE_KIND.stringEnum
+> & {
+  readonly multiple: false;
+  readonly choices: readonly string[];
+  readonly booleanMode: null;
+  readonly valueName: string;
+  readonly defaultValue: string | null;
+};
+
+export type CliRepeatedStringEnumOptionDescriptor = CliOptionDescriptorBase<
+  typeof CLI_VALUE_KIND.stringEnum
+> & {
+  readonly multiple: true;
+  readonly choices: readonly string[];
+  readonly booleanMode: null;
+  readonly valueName: string;
+  readonly defaultValue: readonly string[] | null;
+};
+
+export type CliBooleanValueOptionDescriptor = CliOptionDescriptorBase<
+  typeof CLI_VALUE_KIND.boolean
+> & {
+  readonly multiple: false;
+  readonly choices: readonly [];
+  readonly booleanMode: typeof CLI_BOOLEAN_MODE.value;
+  readonly valueName: string;
+  readonly defaultValue: null;
+};
+
+export type CliBooleanFlagOptionDescriptor = CliOptionDescriptorBase<
+  typeof CLI_VALUE_KIND.boolean
+> & {
+  readonly multiple: false;
+  readonly choices: readonly [];
+  readonly booleanMode: typeof CLI_BOOLEAN_MODE.flag;
+  readonly valueName: null;
+  readonly defaultValue: boolean;
+};
+
+export type CliBooleanOptionDescriptor =
+  | CliBooleanValueOptionDescriptor
+  | CliBooleanFlagOptionDescriptor;
+
+export type CliPositiveIntegerOptionDescriptor = CliOptionDescriptorBase<
+  typeof CLI_VALUE_KIND.positiveInteger
+> & {
+  readonly multiple: false;
+  readonly choices: readonly [];
+  readonly booleanMode: null;
+  readonly valueName: string;
+  readonly defaultValue: number | null;
+};
+
+export type CliOptionDescriptor =
+  | CliStringOptionDescriptor
+  | CliRepeatedStringOptionDescriptor
+  | CliStringEnumOptionDescriptor
+  | CliRepeatedStringEnumOptionDescriptor
+  | CliBooleanOptionDescriptor
+  | CliPositiveIntegerOptionDescriptor;
+
+const EmptyCliOptionChoices = [] as const;
+
+export function booleanOptionDefinition(
+  name: string,
+  flags: readonly string[],
+  description: string,
+  defaultValue: boolean | null = null,
+): CliBooleanOptionDescriptor {
+  return defaultValue === null
+    ? {
+        name,
+        flags,
+        description,
+        kind: CLI_VALUE_KIND.boolean,
+        multiple: false,
+        choices: EmptyCliOptionChoices,
+        booleanMode: CLI_BOOLEAN_MODE.value,
+        valueName: name,
+        defaultValue,
+      }
+    : {
+        name,
+        flags,
+        description,
+        kind: CLI_VALUE_KIND.boolean,
+        multiple: false,
+        choices: EmptyCliOptionChoices,
+        booleanMode: CLI_BOOLEAN_MODE.flag,
+        valueName: null,
+        defaultValue,
+      };
+}
+
+export function stringOptionDefinition(
+  name: string,
+  flags: readonly string[],
+  description: string,
+  defaultValue: string | null = null,
+): CliStringOptionDescriptor {
+  return {
+    name,
+    flags,
+    description,
+    kind: CLI_VALUE_KIND.string,
+    multiple: false,
+    choices: EmptyCliOptionChoices,
+    booleanMode: null,
+    valueName: name,
+    defaultValue,
+  };
+}
+
+export function repeatedStringOptionDefinition(
+  name: string,
+  flags: readonly string[],
+  description: string,
+  defaultValue: readonly string[] | null = null,
+): CliRepeatedStringOptionDescriptor {
+  return {
+    name,
+    flags,
+    description,
+    kind: CLI_VALUE_KIND.string,
+    multiple: true,
+    choices: EmptyCliOptionChoices,
+    booleanMode: null,
+    valueName: name,
+    defaultValue,
+  };
+}
+
+export function positiveIntegerOptionDefinition(
+  name: string,
+  flags: readonly string[],
+  description: string,
+  defaultValue: number | null = null,
+): CliPositiveIntegerOptionDescriptor {
+  return {
+    name,
+    flags,
+    description,
+    kind: CLI_VALUE_KIND.positiveInteger,
+    multiple: false,
+    choices: EmptyCliOptionChoices,
+    booleanMode: null,
+    valueName: name,
+    defaultValue,
+  };
+}
+
+export function stringEnumOptionDefinition(
+  name: string,
+  flags: readonly string[],
+  description: string,
+  choices: readonly string[],
+  defaultValue: string | null = null,
+): CliStringEnumOptionDescriptor {
+  return {
+    name,
+    flags,
+    description,
+    kind: CLI_VALUE_KIND.stringEnum,
+    multiple: false,
+    choices,
+    booleanMode: null,
+    valueName: name,
+    defaultValue,
+  };
+}
+
+export function repeatedStringEnumOptionDefinition(
+  name: string,
+  flags: readonly string[],
+  description: string,
+  choices: readonly string[],
+  defaultValue: readonly string[] | null = null,
+): CliRepeatedStringEnumOptionDescriptor {
+  return {
+    name,
+    flags,
+    description,
+    kind: CLI_VALUE_KIND.stringEnum,
+    multiple: true,
+    choices,
+    booleanMode: null,
+    valueName: name,
+    defaultValue,
+  };
+}
 
 export function defineCliBinding<const Parameters extends ParameterSet>(
   binding: CliBinding<Parameters>,
@@ -67,20 +272,13 @@ export function createCliOptions<
       input.entry.parameters,
       row.parameterName,
     );
-    const value = flattenCliValueShape(parameter.codec.shape);
-    return {
+    return cliOptionDescriptorFor({
       name: parameter.name,
       flags: row.flags,
       description: parameter.description,
-      kind: value.kind,
-      multiple: value.multiple,
-      choices: value.choices,
-      booleanMode:
-        value.kind === CLI_VALUE_KIND.boolean
-          ? cliBooleanModeFor(parameter.requirement.defaultValue)
-          : null,
+      shape: parameter.codec.shape,
       defaultValue: parameter.requirement.defaultValue,
-    };
+    });
   });
 }
 
@@ -118,16 +316,125 @@ export function parseCliValues<
   return Object.fromEntries(output) as ParameterValues<Parameters>;
 }
 
-function cliBooleanModeFor(
-  defaultValue: JsonValue | undefined,
-): CliBooleanMode {
-  // A bare flag can only produce `true`, so a boolean without a default (its
-  // absence is a distinct state, and `false` must be expressible) has to render
-  // as an explicit `--flag true|false`. A boolean with a default can use a flag,
-  // where absence falls back to that default.
-  return defaultValue === undefined
-    ? CLI_BOOLEAN_MODE.value
-    : CLI_BOOLEAN_MODE.flag;
+function cliOptionDescriptorFor(input: {
+  readonly name: string;
+  readonly flags: readonly string[];
+  readonly description: string;
+  readonly shape: ValueShape;
+  readonly defaultValue: JsonValue | undefined;
+}): CliOptionDescriptor {
+  const value = flattenCliValueShape(input.shape);
+  if (value.multiple) {
+    const defaultValue = optionalStringListDefault(
+      input.defaultValue,
+      input.name,
+    );
+    if (value.kind === CLI_VALUE_KIND.string) {
+      return repeatedStringOptionDefinition(
+        input.name,
+        input.flags,
+        input.description,
+        defaultValue,
+      );
+    }
+    if (value.kind === CLI_VALUE_KIND.stringEnum) {
+      return repeatedStringEnumOptionDefinition(
+        input.name,
+        input.flags,
+        input.description,
+        value.choices,
+        defaultValue,
+      );
+    }
+    throw new Error(`Repeated ${value.kind} CLI options are not supported`);
+  }
+
+  switch (value.kind) {
+    case CLI_VALUE_KIND.string:
+      return stringOptionDefinition(
+        input.name,
+        input.flags,
+        input.description,
+        optionalStringDefault(input.defaultValue, input.name),
+      );
+    case CLI_VALUE_KIND.stringEnum:
+      return stringEnumOptionDefinition(
+        input.name,
+        input.flags,
+        input.description,
+        value.choices,
+        optionalStringDefault(input.defaultValue, input.name),
+      );
+    case CLI_VALUE_KIND.boolean:
+      return booleanOptionDefinition(
+        input.name,
+        input.flags,
+        input.description,
+        optionalBooleanDefault(input.defaultValue, input.name),
+      );
+    case CLI_VALUE_KIND.positiveInteger:
+      return positiveIntegerOptionDefinition(
+        input.name,
+        input.flags,
+        input.description,
+        optionalNumberDefault(input.defaultValue, input.name),
+      );
+  }
+}
+
+function optionalStringDefault(
+  value: JsonValue | undefined,
+  optionName: string,
+): string | null {
+  if (value === undefined) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`CLI option ${optionName} requires a string default`);
+  }
+  return value;
+}
+
+function optionalStringListDefault(
+  value: JsonValue | undefined,
+  optionName: string,
+): readonly string[] | null {
+  if (value === undefined) {
+    return null;
+  }
+  if (
+    !Array.isArray(value) ||
+    !value.every((item) => typeof item === "string")
+  ) {
+    throw new Error(`CLI option ${optionName} requires a string-list default`);
+  }
+  return value;
+}
+
+function optionalBooleanDefault(
+  value: JsonValue | undefined,
+  optionName: string,
+): boolean | null {
+  if (value === undefined) {
+    return null;
+  }
+  if (typeof value !== "boolean") {
+    throw new Error(`CLI option ${optionName} requires a boolean default`);
+  }
+  return value;
+}
+
+function optionalNumberDefault(
+  value: JsonValue | undefined,
+  optionName: string,
+): number | null {
+  if (value === undefined) {
+    return null;
+  }
+  if (typeof value !== "number") {
+    throw new Error(`CLI option ${optionName} requires a numeric default`);
+  }
+  return value;
 }
 
 function flattenCliValueShape(shape: ValueShape): {

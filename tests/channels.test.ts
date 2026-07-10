@@ -108,6 +108,8 @@ describe("@alpacaloop/channels CLI binding", () => {
         flags: ["--symbol"],
         kind: CLI_VALUE_KIND.string,
         multiple: true,
+        defaultValue: null,
+        valueName: "symbol",
       }),
       expect.objectContaining({
         name: "intent",
@@ -121,11 +123,14 @@ describe("@alpacaloop/channels CLI binding", () => {
         kind: CLI_VALUE_KIND.boolean,
         booleanMode: CLI_BOOLEAN_MODE.value,
         multiple: false,
+        defaultValue: null,
+        valueName: "exported",
       }),
       expect.objectContaining({
         name: "depth",
         defaultValue: 2,
         kind: CLI_VALUE_KIND.positiveInteger,
+        valueName: "depth",
       }),
       expect.objectContaining({
         name: "verbose",
@@ -133,6 +138,7 @@ describe("@alpacaloop/channels CLI binding", () => {
         booleanMode: CLI_BOOLEAN_MODE.flag,
         defaultValue: false,
         multiple: false,
+        valueName: null,
       }),
     ]);
 
