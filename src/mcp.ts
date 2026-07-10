@@ -1,13 +1,24 @@
-import { CODEC_DECODE_RESULT_KIND, type JsonValue } from "@alpacaloop/core";
+import {
+  CODEC_DECODE_RESULT_KIND,
+  type JsonObject,
+  type JsonValue,
+} from "@alpacaloop/core";
 import type { z } from "zod";
 import {
   PARAMETER_PRESENCE,
   type EntryDefinition,
+  type EntryDefinitionWithOutput,
   type ParameterSet,
   type ParameterValues,
   type RawValueMap,
 } from "./model.js";
 import { requireParameter } from "./internal.js";
+import { requireEntryOutput } from "./contract.js";
+
+const ZOD_SCHEMA_TYPE = {
+  object: "object",
+  readonly: "readonly",
+} as const;
 
 export interface McpParameterBinding<Name extends string = string> {
   readonly parameterName: Name;
@@ -48,6 +59,32 @@ export function createMcpInputSchema<
         : describedSchema;
   }
   return shape;
+}
+
+export function createMcpOutputSchema<Output extends JsonObject>(input: {
+  readonly entry: EntryDefinitionWithOutput<
+    string,
+    ParameterSet,
+    unknown,
+    Output
+  >;
+}): z.ZodType<Output> {
+  const schema = requireEntryOutput(input.entry).schema;
+  const normalized =
+    schema.type === ZOD_SCHEMA_TYPE.readonly ? unwrapZodSchema(schema) : schema;
+  if (normalized.type !== ZOD_SCHEMA_TYPE.object) {
+    throw new Error(
+      `Entry ${input.entry.name} output contract must use a Zod object schema`,
+    );
+  }
+  return normalized;
+}
+
+function unwrapZodSchema<Output>(schema: z.ZodType<Output>): z.ZodType<Output> {
+  const wrapper = schema as z.ZodType<Output> & {
+    unwrap(): z.ZodType<Output>;
+  };
+  return wrapper.unwrap();
 }
 
 export function parseMcpValues<

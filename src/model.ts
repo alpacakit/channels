@@ -1,4 +1,8 @@
-import type { JsonValue, RuntimeCodec } from "@alpacaloop/core";
+import type {
+  CodecDecodeResult,
+  JsonValue,
+  RuntimeCodec,
+} from "@alpacaloop/core";
 import type { z } from "zod";
 
 export const PARAMETER_PRESENCE = {
@@ -34,6 +38,11 @@ export interface ValueCodec<Value extends JsonValue>
   extends RuntimeCodec<Value> {
   readonly schema: z.ZodType<Value>;
   readonly shape: ValueShape;
+}
+
+export interface OutputContract<Value extends JsonValue> {
+  readonly schema: z.ZodType<Value>;
+  decode(input: unknown): CodecDecodeResult<Value>;
 }
 
 export type ParameterRequirement<Value extends JsonValue> =
@@ -75,11 +84,22 @@ export interface EntryDefinition<
   Name extends string,
   Parameters extends ParameterSet,
   Projection,
+  Output extends JsonValue = JsonValue,
 > {
   readonly name: Name;
   readonly parameters: Parameters;
   project(input: { readonly values: ParameterValues<Parameters> }): Projection;
+  readonly output?: OutputContract<Output>;
 }
+
+export type EntryDefinitionWithOutput<
+  Name extends string,
+  Parameters extends ParameterSet,
+  Projection,
+  Output extends JsonValue,
+> = EntryDefinition<Name, Parameters, Projection, Output> & {
+  readonly output: OutputContract<Output>;
+};
 
 export function defineParameter<
   const Name extends string,
@@ -94,9 +114,26 @@ export function defineEntry<
   const Name extends string,
   const Parameters extends ParameterSet,
   Projection,
+  Output extends JsonValue,
 >(
-  entry: EntryDefinition<Name, Parameters, Projection>,
-): EntryDefinition<Name, Parameters, Projection> {
+  entry: EntryDefinitionWithOutput<Name, Parameters, Projection, Output>,
+): EntryDefinitionWithOutput<Name, Parameters, Projection, Output>;
+export function defineEntry<
+  const Name extends string,
+  const Parameters extends ParameterSet,
+  Projection,
+  Output extends JsonValue = JsonValue,
+>(
+  entry: EntryDefinition<Name, Parameters, Projection, Output>,
+): EntryDefinition<Name, Parameters, Projection, Output>;
+export function defineEntry<
+  const Name extends string,
+  const Parameters extends ParameterSet,
+  Projection,
+  Output extends JsonValue = JsonValue,
+>(
+  entry: EntryDefinition<Name, Parameters, Projection, Output>,
+): EntryDefinition<Name, Parameters, Projection, Output> {
   return entry;
 }
 

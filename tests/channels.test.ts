@@ -1,11 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
+  createOutputContract,
   codecs,
   defineEntry,
   defineParameter,
+  type EntryDefinitionWithOutput,
+  EntryOutputContractError,
   optional,
   projectEntry,
+  requireEntryOutput,
+  verifyEntryOutput,
 } from "../src/index.js";
 import {
   CLI_BOOLEAN_MODE,
@@ -16,6 +21,7 @@ import {
 } from "../src/cli.js";
 import {
   createMcpInputSchema,
+  createMcpOutputSchema,
   defineMcpBinding,
   parseMcpValues,
 } from "../src/mcp.js";
@@ -96,6 +102,52 @@ const TestMcpBinding = defineMcpBinding({
     { parameterName: "intent" },
     { parameterName: "depth" },
   ],
+});
+
+const TestOutputSchema = z
+  .object({
+    status: z.literal("ok"),
+    count: z.number().int().nonnegative(),
+  })
+  .strict()
+  .readonly();
+
+type TestOutput = z.infer<typeof TestOutputSchema>;
+
+const TestOutputEntry = defineEntry({
+  name: "output",
+  parameters: [],
+  project: () => null,
+  output: createOutputContract(TestOutputSchema),
+});
+
+const OutputlessEntry = defineEntry<
+  "outputless",
+  readonly [],
+  null,
+  { readonly status: "ok" }
+>({
+  name: "outputless",
+  parameters: [],
+  project: () => null,
+});
+
+const NonObjectSchemaEntry = defineEntry({
+  name: "non-object-schema",
+  parameters: [],
+  project: () => null,
+  output: createOutputContract(
+    z.union([
+      z
+        .object({ kind: z.literal("first") })
+        .strict()
+        .readonly(),
+      z
+        .object({ kind: z.literal("second") })
+        .strict()
+        .readonly(),
+    ]),
+  ),
 });
 
 describe("@alpacaloop/channels CLI binding", () => {
@@ -204,5 +256,73 @@ describe("@alpacaloop/channels MCP binding", () => {
       symbol: ["AdapterContext"],
       depth: 2,
     });
+  });
+});
+
+describe("@alpacaloop/channels output contract", () => {
+  it("infers and verifies a declared output", () => {
+    const output = verifyEntryOutput(TestOutputEntry, {
+      status: "ok",
+      count: 2,
+    });
+
+    expectTypeOf(output).toEqualTypeOf<TestOutput>();
+    expectTypeOf(TestOutputEntry).toMatchTypeOf<
+      EntryDefinitionWithOutput<string, readonly [], null, TestOutput>
+    >();
+    expectTypeOf(OutputlessEntry).not.toMatchTypeOf<
+      EntryDefinitionWithOutput<
+        string,
+        readonly [],
+        null,
+        { readonly status: "ok" }
+      >
+    >();
+    expect(output).toEqual({ status: "ok", count: 2 });
+  });
+
+  it.each([
+    [{ status: "ok" }, "count"],
+    [{ status: "ok", count: "two" }, "count"],
+    [{ status: "ok", count: 2, extra: true }, "$"],
+  ])("rejects invalid output %#", (value, issuePath) => {
+    try {
+      verifyEntryOutput(TestOutputEntry, value as unknown as TestOutput);
+      throw new Error("Expected output verification to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(EntryOutputContractError);
+      if (!(error instanceof EntryOutputContractError)) {
+        return;
+      }
+      expect(error.entryName).toBe(TestOutputEntry.name);
+      expect(error.issues.some((issue) => issue.startsWith(issuePath))).toBe(
+        true,
+      );
+    }
+  });
+
+  it("exposes a strict MCP output schema", () => {
+    const schema = createMcpOutputSchema({ entry: TestOutputEntry });
+
+    expect(schema).toBe(TestOutputSchema.unwrap());
+    expect(z.toJSONSchema(schema)).toMatchObject({
+      type: "object",
+      additionalProperties: false,
+      required: ["status", "count"],
+    });
+  });
+
+  it("rejects output access for an entry without an output contract", () => {
+    expect(() => requireEntryOutput(OutputlessEntry)).toThrow(
+      "Entry outputless does not declare an output contract",
+    );
+  });
+
+  it("rejects an MCP output contract whose top-level schema is not an object", () => {
+    expect(() =>
+      createMcpOutputSchema({ entry: NonObjectSchemaEntry }),
+    ).toThrow(
+      "Entry non-object-schema output contract must use a Zod object schema",
+    );
   });
 });
