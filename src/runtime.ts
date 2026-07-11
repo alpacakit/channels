@@ -48,6 +48,28 @@ export type RawValueCoercer = (
   rawValue: unknown,
 ) => unknown;
 
+const PARAMETER_CANDIDATE_KIND = {
+  omitted: "omitted",
+  raw: "raw",
+  default: "default",
+  invalid: "invalid",
+} as const;
+
+type ParameterCandidate =
+  | { readonly kind: typeof PARAMETER_CANDIDATE_KIND.omitted }
+  | {
+      readonly kind: typeof PARAMETER_CANDIDATE_KIND.raw;
+      readonly value: unknown;
+    }
+  | {
+      readonly kind: typeof PARAMETER_CANDIDATE_KIND.default;
+      readonly value: JsonValue;
+    }
+  | {
+      readonly kind: typeof PARAMETER_CANDIDATE_KIND.invalid;
+      readonly issues: readonly string[];
+    };
+
 export function decodeParameterValues<
   const Parameters extends ParameterSet,
 >(input: {
@@ -64,23 +86,20 @@ export function decodeParameterValues<
         `Unknown parameter binding: ${parameterName}`,
       ]);
     }
-    const rawValue = input.raw[parameter.name];
-    if (rawValue === undefined) {
-      if (parameter.requirement.defaultValue !== undefined) {
-        output.set(parameter.name, parameter.requirement.defaultValue);
-        continue;
-      }
-      if (parameter.requirement.presence === PARAMETER_PRESENCE.required) {
-        return invalidParameter(parameter.name, [
-          `Missing required parameter ${parameter.name}`,
-        ]);
-      }
+    const candidate = resolveParameterCandidate(parameter, input.raw);
+    if (candidate.kind === PARAMETER_CANDIDATE_KIND.omitted) {
       continue;
+    }
+    if (candidate.kind === PARAMETER_CANDIDATE_KIND.invalid) {
+      return invalidParameter(parameter.name, candidate.issues);
     }
 
     let value: unknown;
     try {
-      value = input.coerce ? input.coerce(parameter, rawValue) : rawValue;
+      value =
+        candidate.kind === PARAMETER_CANDIDATE_KIND.raw && input.coerce
+          ? input.coerce(parameter, candidate.value)
+          : candidate.value;
     } catch (error) {
       return invalidParameter(parameter.name, [errorMessage(error)]);
     }
@@ -98,6 +117,28 @@ export function decodeParameterValues<
     kind: ENTRY_DECODE_RESULT_KIND.resolved,
     values: Object.fromEntries(output) as ParameterValues<Parameters>,
   };
+}
+
+function resolveParameterCandidate(
+  parameter: ParameterDefinition<string, JsonValue>,
+  raw: RawValueMap,
+): ParameterCandidate {
+  const rawValue = raw[parameter.name];
+  if (rawValue !== undefined) {
+    return { kind: PARAMETER_CANDIDATE_KIND.raw, value: rawValue };
+  }
+  if (parameter.requirement.defaultValue !== undefined) {
+    return {
+      kind: PARAMETER_CANDIDATE_KIND.default,
+      value: parameter.requirement.defaultValue,
+    };
+  }
+  return parameter.requirement.presence === PARAMETER_PRESENCE.required
+    ? {
+        kind: PARAMETER_CANDIDATE_KIND.invalid,
+        issues: [`Missing required parameter ${parameter.name}`],
+      }
+    : { kind: PARAMETER_CANDIDATE_KIND.omitted };
 }
 
 export function decodeEntryInput<

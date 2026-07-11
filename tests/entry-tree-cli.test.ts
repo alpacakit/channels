@@ -272,6 +272,71 @@ describe("CLI entry tree router", () => {
     });
   });
 
+  it("allows an array codec to consume one non-variadic positional", () => {
+    const entry = defineEntry({
+      name: "single-list",
+      parameters: [
+        defineParameter({
+          name: "item",
+          codec: codecs.stringList(),
+          requirement: required(),
+          description: "One item",
+        }),
+      ],
+      project: ({ values }) => values,
+    });
+    const router = createCliRouter(
+      defineEntryTree(
+        defineEntryNode({
+          name: "root",
+          description: "Root",
+          endpoints: [
+            defineEntryEndpoint(
+              entry,
+              bindCliEntry({
+                parameters: [
+                  {
+                    kind: "positional",
+                    parameterName: "item",
+                    valueName: "ITEM",
+                    variadic: false,
+                  },
+                ],
+              }),
+            ),
+          ],
+        }),
+      ),
+    );
+
+    expect(router.resolve(["value"])).toMatchObject({
+      kind: CLI_ROUTER_RESULT_KIND.resolved,
+      projection: { item: ["value"] },
+    });
+  });
+
+  it("builds help for a deeply nested tree without recursion", () => {
+    const entry = defineEntry({
+      name: "leaf",
+      parameters: [],
+      project: () => null,
+    });
+    let root = defineEntryNode({
+      name: "leaf",
+      description: "Leaf",
+      endpoints: [defineEntryEndpoint(entry, bindCliEntry({ parameters: [] }))],
+    });
+    for (let depth = 0; depth < 3_000; depth += 1) {
+      root = defineEntryNode({
+        name: `level-${depth}`,
+        description: "Level",
+        children: [root],
+      });
+    }
+
+    expect(createCliRouter(defineEntryTree(root)).help.name).toBe("level-2999");
+  });
+
   it("reports required input and exposes a derived help surface", () => {
     const router = createCliRouter(createAcceptanceTree());
     expect(router.resolve(["h"])).toMatchObject({

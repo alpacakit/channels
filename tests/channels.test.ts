@@ -212,6 +212,35 @@ describe("@alpacaloop/channels CLI binding", () => {
       verbose: false,
     });
   });
+
+  it("validates default values and preserves legacy numeric coercion", () => {
+    const invalidDefaultEntry = defineEntry({
+      name: "invalid-default",
+      parameters: [
+        defineParameter({
+          name: "count",
+          codec: codecs.positiveInteger(),
+          requirement: optional({ default: 0 }),
+          description: "Count",
+        }),
+      ],
+      project: ({ values }) => values,
+    });
+    const binding = defineCliBinding({
+      parameters: [{ parameterName: "count", flags: ["--count"] }],
+    });
+
+    expect(() =>
+      parseCliValues({ entry: invalidDefaultEntry, binding, raw: {} }),
+    ).toThrow("Invalid CLI option count");
+    expect(() =>
+      parseCliValues({
+        entry: invalidDefaultEntry,
+        binding,
+        raw: { count: "2" },
+      }),
+    ).toThrow("Invalid CLI option count");
+  });
 });
 
 describe("@alpacaloop/channels MCP binding", () => {
@@ -256,6 +285,28 @@ describe("@alpacaloop/channels MCP binding", () => {
       symbol: ["AdapterContext"],
       depth: 2,
     });
+  });
+
+  it("validates defaults through the shared decoder", () => {
+    const entry = defineEntry({
+      name: "invalid-default",
+      parameters: [
+        defineParameter({
+          name: "count",
+          codec: codecs.positiveInteger(),
+          requirement: optional({ default: 0 }),
+          description: "Count",
+        }),
+      ],
+      project: ({ values }) => values,
+    });
+    const binding = defineMcpBinding({
+      parameters: [{ parameterName: "count" }],
+    });
+
+    expect(() => parseMcpValues({ entry, binding, raw: {} })).toThrow(
+      "Invalid MCP argument count",
+    );
   });
 });
 
