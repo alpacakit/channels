@@ -283,7 +283,9 @@ function resolveCli(
   const endpoint = node.endpoint.endpoint;
   const decoded = decodeEntryInput({
     entry: endpoint.entry,
-    parameterNames: node.endpoint.parameterNames,
+    parameterNames: endpoint.entry.parameters.map(
+      (parameter) => parameter.name,
+    ),
     raw: rawResult.raw,
     coerce: (parameter, rawValue) =>
       coerceCliArgvValue(parameter.codec.shape, rawValue),

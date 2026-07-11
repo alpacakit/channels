@@ -58,13 +58,7 @@ const HintEntry = defineEntry({
   project: ({ values }) => ({ command: "hint", ...values }),
 });
 
-const HintMcpBinding = {
-  parameters: [
-    { parameterName: "query" },
-    { parameterName: "tag" },
-    { parameterName: "verbose" },
-  ],
-} as const;
+const HintMcpBinding = ["query", "tag", "verbose"] as const;
 
 const HintEndpoint = defineEntryEndpoint(
   HintEntry,
@@ -89,7 +83,7 @@ const HintEndpoint = defineEntryEndpoint(
       },
     ],
   }),
-  bindMcpEntry(HintMcpBinding),
+  bindMcpEntry(...HintMcpBinding),
 );
 
 const CollectEntry = defineEntry({

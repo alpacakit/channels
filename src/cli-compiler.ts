@@ -85,7 +85,6 @@ export type CliOptionAction =
 
 export type CompiledCliEndpoint = {
   readonly endpoint: EntryTreeEndpoint;
-  readonly parameterNames: readonly string[];
   readonly options: readonly CompiledCliOption[];
   readonly positionals: readonly CompiledCliPositional[];
   readonly optionByToken: ReadonlyMap<string, CliOptionAction>;
@@ -140,7 +139,6 @@ export function compileCliBinding(
   }
   return {
     endpoint,
-    parameterNames: binding.parameters.map((row) => row.parameterName),
     options,
     positionals,
     optionByToken: createCliOptionActionIndex(options, location, issues),

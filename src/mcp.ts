@@ -24,27 +24,13 @@ const ZOD_SCHEMA_TYPE = {
   readonly: "readonly",
 } as const;
 
-export type McpParameterBinding<Name extends string = string> = {
-  readonly parameterName: Name;
-};
+export type McpBinding<Parameters extends ParameterSet = ParameterSet> =
+  readonly Parameters[number]["name"][];
 
-export type McpBinding<Parameters extends ParameterSet = ParameterSet> = {
-  readonly parameters: readonly McpParameterBinding<
-    Parameters[number]["name"]
-  >[];
-};
-
-export function bindMcpEntry<
-  const Binding extends {
-    readonly parameters: readonly McpParameterBinding[];
-  },
->(
-  binding: Binding,
-): EntryChannelBinding<
-  typeof CHANNEL.mcp,
-  Binding["parameters"][number]["parameterName"]
-> {
-  return createEntryChannelBinding(CHANNEL.mcp, binding);
+export function bindMcpEntry<const ParameterNames extends readonly string[]>(
+  ...parameterNames: ParameterNames
+): EntryChannelBinding<typeof CHANNEL.mcp, ParameterNames[number]> {
+  return createEntryChannelBinding(CHANNEL.mcp, parameterNames);
 }
 
 export function createMcpInputSchema(input: {
@@ -67,7 +53,7 @@ export function createMcpInputSchema(input: {
 
 function resolveMcpBindings(
   endpoint: EntryTreeEndpoint,
-): readonly CompiledParameterBinding<McpParameterBinding>[] {
+): readonly CompiledParameterBinding[] {
   const channelBindings = endpoint.channels.filter(
     (candidate) => candidate.channel === CHANNEL.mcp,
   );
@@ -83,7 +69,7 @@ function resolveMcpBindings(
   }
   const compilation = compileParameterBindings(
     endpoint.entry,
-    channelBinding.binding.parameters,
+    channelBinding.binding.map((parameterName) => ({ parameterName })),
   );
   if (compilation.issues.length > 0) {
     throw new EntryTreeDefinitionError(
@@ -110,20 +96,8 @@ function formatMcpParameterBindingIssue(
 }
 
 function isMcpBinding(value: unknown): value is McpBinding {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("parameters" in value) ||
-    !Array.isArray(value.parameters)
-  ) {
-    return false;
-  }
-  return value.parameters.every(
-    (row) =>
-      typeof row === "object" &&
-      row !== null &&
-      "parameterName" in row &&
-      typeof row.parameterName === "string",
+  return (
+    Array.isArray(value) && value.every((name) => typeof name === "string")
   );
 }
 
