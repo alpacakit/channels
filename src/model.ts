@@ -17,24 +17,84 @@ declare const ChannelSegmentOverrideBrand: unique symbol;
 declare const EntryChannelBindingBrand: unique symbol;
 declare const EntryChannelBindingParameterNames: unique symbol;
 
-export type ValueShape =
-  | { readonly kind: typeof VALUE_SHAPE_KIND.string }
-  | { readonly kind: typeof VALUE_SHAPE_KIND.boolean }
-  | { readonly kind: typeof VALUE_SHAPE_KIND.positiveInteger }
-  | {
-      readonly kind: typeof VALUE_SHAPE_KIND.stringEnum;
-      readonly values: readonly string[];
-    }
-  | {
-      readonly kind: typeof VALUE_SHAPE_KIND.array;
-      readonly element: ValueShape;
-    };
+export type StringValueShape = {
+  readonly kind: typeof VALUE_SHAPE_KIND.string;
+};
+
+export type BooleanValueShape = {
+  readonly kind: typeof VALUE_SHAPE_KIND.boolean;
+};
+
+export type PositiveIntegerValueShape = {
+  readonly kind: typeof VALUE_SHAPE_KIND.positiveInteger;
+};
+
+export type StringEnumValueShape<
+  Values extends readonly string[] = readonly string[],
+> = {
+  readonly kind: typeof VALUE_SHAPE_KIND.stringEnum;
+  readonly values: Values;
+};
+
+export type ScalarValueShape =
+  | StringValueShape
+  | BooleanValueShape
+  | PositiveIntegerValueShape
+  | StringEnumValueShape;
+
+export type ArrayValueShape<
+  Element extends ScalarValueShape = ScalarValueShape,
+> = {
+  readonly kind: typeof VALUE_SHAPE_KIND.array;
+  readonly element: Element;
+};
+
+export type ValueShape = ScalarValueShape | ArrayValueShape;
+
+type ScalarJsonValue = string | number | boolean;
+
+type ScalarValueShapeFor<Value extends JsonValue> = [Value] extends [boolean]
+  ? BooleanValueShape
+  : [Value] extends [number]
+    ? PositiveIntegerValueShape
+    : [Value] extends [string]
+      ? StringValueShape | StringEnumValueShape<readonly Value[]>
+      : never;
+
+export type ValueShapeFor<Value extends JsonValue> = [Value] extends [
+  ScalarJsonValue,
+]
+  ? ScalarValueShapeFor<Value>
+  : [Value] extends [readonly (infer Element extends JsonValue)[]]
+    ? ArrayValueShape<ScalarValueShapeFor<Element>>
+    : JsonValue extends Value
+      ? ValueShape
+      : never;
+
+export type ValueForShape<Shape extends ValueShape> =
+  Shape extends BooleanValueShape
+    ? boolean
+    : Shape extends PositiveIntegerValueShape
+      ? number
+      : Shape extends StringEnumValueShape<infer Values>
+        ? Values[number]
+        : Shape extends StringValueShape
+          ? string
+          : Shape extends ArrayValueShape<infer Element>
+            ? readonly ValueForShape<Element>[]
+            : never;
 
 export interface ValueCodec<Value extends JsonValue>
   extends RuntimeCodec<Value> {
   readonly schema: z.ZodType<Value>;
-  readonly shape: ValueShape;
+  readonly shape: ValueShapeFor<Value>;
 }
+
+export type ErasedValueCodec = {
+  readonly schema: z.ZodType;
+  readonly shape: ValueShape;
+  decode(input: unknown): CodecDecodeResult<JsonValue>;
+};
 
 export interface OutputContract<Value extends JsonValue> {
   readonly schema: z.ZodType<Value>;
@@ -58,24 +118,31 @@ export type ParameterRequirement<Value extends JsonValue> =
   | RequiredParameterRequirement
   | OptionalParameterRequirement<Value>;
 
-export interface ParameterDefinition<
+export type ParameterDefinition<
   Name extends string,
   Value extends JsonValue,
   Requirement extends ParameterRequirement<Value> = ParameterRequirement<Value>,
-> {
+> = {
   readonly name: Name;
   readonly codec: ValueCodec<Value>;
   readonly requirement: Requirement;
   readonly description: string;
-}
+};
 
-export type ParameterSet = readonly ParameterDefinition<string, JsonValue>[];
+export type ErasedParameterDefinition = {
+  readonly name: string;
+  readonly codec: ErasedValueCodec;
+  readonly requirement: ParameterRequirement<JsonValue>;
+  readonly description: string;
+};
+
+export type ParameterSet = readonly ErasedParameterDefinition[];
 
 export type RawValueMap = {
   readonly [key: string]: unknown;
 };
 
-type ParameterValue<Parameter extends ParameterDefinition<string, JsonValue>> =
+type ParameterValue<Parameter extends ErasedParameterDefinition> =
   Parameter extends ParameterDefinition<string, infer Value> ? Value : never;
 
 type ParameterMaterialization<Parameter extends ParameterSet[number]> =
@@ -100,60 +167,67 @@ export type ParameterValues<Parameters extends ParameterSet> = {
   readonly [Parameter in Parameters[number] as OmittedParameter<Parameter>["name"]]?: ParameterValue<Parameter>;
 };
 
-export interface EntryDefinition<
+export type EntryDefinition<
   Name extends string,
   Parameters extends ParameterSet,
   Projection,
   Output extends JsonValue = JsonValue,
-> {
+> = {
   readonly name: Name;
   readonly parameters: Parameters;
-  project(input: { readonly values: ParameterValues<Parameters> }): Projection;
+  readonly project: (input: {
+    readonly values: ParameterValues<Parameters>;
+  }) => Projection;
   readonly output?: OutputContract<Output>;
-}
+};
 
-export interface EntryTreeDefinition {
+export type ErasedOutputContract = {
+  readonly schema: z.ZodType;
+  decode(input: unknown): CodecDecodeResult<JsonValue>;
+};
+
+export type ErasedEntryDefinition = {
+  readonly name: string;
+  readonly parameters: ParameterSet;
+  readonly project: (input: never) => unknown;
+  readonly output?: ErasedOutputContract;
+};
+
+export type EntryTreeDefinition = {
   readonly root: EntryTreeNode;
   readonly [EntryTreeDefinitionBrand]: true;
-}
+};
 
-export interface EntryTreeNode {
+export type EntryTreeNode = {
   readonly name: string;
   readonly description: string;
   readonly segments: readonly ChannelSegmentOverride[];
   readonly endpoints: readonly EntryTreeEndpoint[];
   readonly children: readonly EntryTreeNode[];
   readonly [EntryTreeNodeBrand]: true;
-}
+};
 
-export interface EntryTreeEndpoint {
-  readonly entry: EntryDefinition<string, ParameterSet, unknown>;
+export type EntryTreeEndpoint<
+  Entry extends ErasedEntryDefinition = ErasedEntryDefinition,
+> = {
+  readonly entry: Entry;
   readonly channels: readonly EntryChannelBinding[];
   readonly [EntryTreeEndpointBrand]: true;
-}
+};
 
-export type TypedEntryTreeEndpoint<Entry extends EntryTreeEndpoint["entry"]> =
-  Omit<EntryTreeEndpoint, "entry"> & {
-    readonly entry: Entry;
-  };
-
-export interface ChannelSegmentOverride {
+export type ChannelSegmentOverride = {
   readonly channel: Channel;
   readonly segment: unknown;
   readonly [ChannelSegmentOverrideBrand]: true;
-}
+};
 
-export interface EntryChannelBinding {
-  readonly channel: Channel;
+export type EntryChannelBinding<
+  ChannelName extends Channel = Channel,
+  ParameterName extends string = string,
+> = {
+  readonly channel: ChannelName;
   readonly binding: unknown;
   readonly [EntryChannelBindingBrand]: true;
-}
-
-export type TypedEntryChannelBinding<
-  ChannelName extends Channel,
-  ParameterName extends string,
-> = EntryChannelBinding & {
-  readonly channel: ChannelName;
   readonly [EntryChannelBindingParameterNames]: ParameterName;
 };
 
@@ -223,15 +297,4 @@ export function optional<Value extends JsonValue>(
     presence: PARAMETER_PRESENCE.optional,
     defaultValue: input.default,
   };
-}
-
-export function projectEntry<
-  const Name extends string,
-  const Parameters extends ParameterSet,
-  Projection,
->(
-  entry: EntryDefinition<Name, Parameters, Projection>,
-  values: ParameterValues<Parameters>,
-): Projection {
-  return entry.project({ values });
 }

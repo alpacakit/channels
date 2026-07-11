@@ -28,8 +28,13 @@ export class EntryOutputContractError extends Error {
   }
 }
 
-export function requireEntryOutput<Output extends JsonValue>(
-  entry: EntryDefinition<string, ParameterSet, unknown, Output>,
+export function requireEntryOutput<
+  const Name extends string,
+  const Parameters extends ParameterSet,
+  Projection,
+  Output extends JsonValue,
+>(
+  entry: EntryDefinition<Name, Parameters, Projection, Output>,
 ): OutputContract<Output> {
   if (!entry.output) {
     throw new Error(`Entry ${entry.name} does not declare an output contract`);
@@ -37,8 +42,13 @@ export function requireEntryOutput<Output extends JsonValue>(
   return entry.output;
 }
 
-export function verifyEntryOutput<Output extends JsonValue>(
-  entry: EntryDefinitionWithOutput<string, ParameterSet, unknown, Output>,
+export function verifyEntryOutput<
+  const Name extends string,
+  const Parameters extends ParameterSet,
+  Projection,
+  Output extends JsonValue,
+>(
+  entry: EntryDefinitionWithOutput<Name, Parameters, Projection, Output>,
   value: NoInfer<Output>,
 ): Output {
   const decoded = requireEntryOutput(entry).decode(value);

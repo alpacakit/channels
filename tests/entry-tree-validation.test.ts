@@ -150,6 +150,76 @@ describe("Phase-A entry tree definition validation", () => {
     );
   });
 
+  it.each([
+    "query",
+    "-",
+    "--",
+    "---query",
+    "--query=value",
+    "--bad flag",
+  ])("rejects unreachable CLI option flag %j", (flag) => {
+    expectInvalid(
+      node({
+        name: "root",
+        description: "Root",
+        endpoints: [
+          defineEntryEndpoint(
+            RequiredEntry,
+            bindCliEntry({
+              parameters: [
+                {
+                  kind: "option",
+                  parameterName: "value",
+                  flags: [flag as `-${string}`],
+                },
+              ],
+            }),
+          ),
+        ],
+      }),
+      "unreachable CLI flag",
+    );
+  });
+
+  it.each([
+    { token: "", aliases: [] },
+    { token: "-hidden", aliases: [] },
+    { token: "child", aliases: ["--hidden"] },
+  ])("rejects unreachable CLI child segment %#", (segment) => {
+    expectInvalid(
+      node({
+        name: "root",
+        description: "Root",
+        children: [
+          node({
+            name: "child",
+            description: "Child",
+            segments: [overrideCliSegment(segment)],
+            endpoints: [emptyEndpoint()],
+          }),
+        ],
+      }),
+      segment.token.length === 0 ? "must not be empty" : "unreachable",
+    );
+  });
+
+  it("rejects an unreachable default CLI child segment", () => {
+    expectInvalid(
+      node({
+        name: "root",
+        description: "Root",
+        children: [
+          node({
+            name: "-child",
+            description: "Child",
+            endpoints: [emptyEndpoint()],
+          }),
+        ],
+      }),
+      "unreachable",
+    );
+  });
+
   it("rejects multiple CLI endpoints and duplicate channel bindings", () => {
     expectInvalid(
       node({
@@ -279,8 +349,11 @@ describe("Phase-A entry tree definition validation", () => {
       "duplicate binding for parameter",
     );
 
-    const erasedEntry: EntryDefinition<string, ParameterSet, unknown> =
-      RequiredEntry;
+    const erasedEntry = RequiredEntry as unknown as EntryDefinition<
+      string,
+      ParameterSet,
+      unknown
+    >;
     expectInvalid(
       node({
         name: "root",
@@ -327,8 +400,11 @@ describe("Phase-A entry tree definition validation", () => {
       "duplicate MCP binding",
     );
 
-    const erasedEntry: EntryDefinition<string, ParameterSet, unknown> =
-      RequiredEntry;
+    const erasedEntry = RequiredEntry as unknown as EntryDefinition<
+      string,
+      ParameterSet,
+      unknown
+    >;
     const nonexistent = defineEntryEndpoint(
       erasedEntry,
       bindMcpEntry(

@@ -8,12 +8,11 @@ import {
 } from "./binding-compiler.js";
 import { requireEntryOutput } from "./contract.js";
 import type {
+  EntryChannelBinding,
   EntryDefinitionWithOutput,
   EntryTreeEndpoint,
   ParameterSet,
   RawValueMap,
-  TypedEntryChannelBinding,
-  TypedEntryTreeEndpoint,
 } from "./model.js";
 import { decodeEntryInput, type EntryDecodeResult } from "./runtime.js";
 import { EntryTreeDefinitionError, findChannelBinding } from "./schema.js";
@@ -25,15 +24,15 @@ const ZOD_SCHEMA_TYPE = {
   readonly: "readonly",
 } as const;
 
-export interface McpParameterBinding<Name extends string = string> {
+export type McpParameterBinding<Name extends string = string> = {
   readonly parameterName: Name;
-}
+};
 
-export interface McpBinding<Parameters extends ParameterSet = ParameterSet> {
+export type McpBinding<Parameters extends ParameterSet = ParameterSet> = {
   readonly parameters: readonly McpParameterBinding<
     Parameters[number]["name"]
   >[];
-}
+};
 
 export function defineMcpBinding<const Binding extends McpBinding>(
   binding: Binding,
@@ -51,7 +50,7 @@ export function bindMcpEntry<
   },
 >(
   binding: Binding,
-): TypedEntryChannelBinding<
+): EntryChannelBinding<
   typeof CHANNEL.mcp,
   Binding["parameters"][number]["parameterName"]
 > {
@@ -138,9 +137,14 @@ function isMcpBinding(value: unknown): value is McpBinding {
   );
 }
 
-export function createMcpOutputSchema<Output extends JsonObject>(input: {
-  readonly endpoint: TypedEntryTreeEndpoint<
-    EntryDefinitionWithOutput<string, ParameterSet, unknown, Output>
+export function createMcpOutputSchema<
+  const Name extends string,
+  const Parameters extends ParameterSet,
+  Projection,
+  Output extends JsonObject,
+>(input: {
+  readonly endpoint: EntryTreeEndpoint<
+    EntryDefinitionWithOutput<Name, Parameters, Projection, Output>
   >;
 }): z.ZodType<Output> {
   resolveMcpBindings(input.endpoint);
@@ -168,7 +172,7 @@ export type McpEntryParseResult<Entry extends EntryTreeEndpoint["entry"]> =
 export function parseMcpEntry<
   const Entry extends EntryTreeEndpoint["entry"],
 >(input: {
-  readonly endpoint: TypedEntryTreeEndpoint<Entry>;
+  readonly endpoint: EntryTreeEndpoint<Entry>;
   readonly raw: RawValueMap;
 }): McpEntryParseResult<Entry> {
   const bindings = resolveMcpBindings(input.endpoint);

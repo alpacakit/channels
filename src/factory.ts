@@ -1,14 +1,13 @@
 import type { JsonValue } from "@alpacaloop/core";
 import type {
   ChannelSegmentOverride,
+  EntryChannelBinding,
   EntryDefinition,
   EntryDefinitionWithOutput,
   EntryTreeDefinition,
   EntryTreeEndpoint,
   EntryTreeNode,
   ParameterSet,
-  TypedEntryChannelBinding,
-  TypedEntryTreeEndpoint,
 } from "./model.js";
 import type { Channel } from "./values.js";
 
@@ -39,11 +38,11 @@ export function defineEntryEndpoint<
   Output extends JsonValue,
 >(
   entry: EntryDefinitionWithOutput<Name, Parameters, Projection, Output>,
-  ...channels: readonly TypedEntryChannelBinding<
+  ...channels: readonly EntryChannelBinding<
     Channel,
     NoInfer<Parameters[number]["name"]>
   >[]
-): TypedEntryTreeEndpoint<
+): EntryTreeEndpoint<
   EntryDefinitionWithOutput<Name, Parameters, Projection, Output>
 >;
 export function defineEntryEndpoint<
@@ -52,14 +51,14 @@ export function defineEntryEndpoint<
   Projection,
 >(
   entry: EntryDefinition<Name, Parameters, Projection>,
-  ...channels: readonly TypedEntryChannelBinding<
+  ...channels: readonly EntryChannelBinding<
     Channel,
     NoInfer<Parameters[number]["name"]>
   >[]
-): TypedEntryTreeEndpoint<EntryDefinition<Name, Parameters, Projection>>;
+): EntryTreeEndpoint<EntryDefinition<Name, Parameters, Projection>>;
 export function defineEntryEndpoint(
   entry: EntryTreeEndpoint["entry"],
-  ...channels: readonly TypedEntryChannelBinding<Channel, string>[]
+  ...channels: readonly EntryChannelBinding<Channel, string>[]
 ): EntryTreeEndpoint {
   return { entry, channels } as unknown as EntryTreeEndpoint;
 }

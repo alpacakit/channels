@@ -1,8 +1,8 @@
 import type { JsonValue } from "@alpacaloop/core";
 import type {
   ChannelSegmentOverride,
+  EntryChannelBinding,
   EntryTreeEndpoint,
-  TypedEntryChannelBinding,
 } from "./model.js";
 import type { CLI_BOOLEAN_MODE } from "./cli-values.js";
 import {
@@ -35,11 +35,14 @@ export type CliBooleanMode =
 export type CliRepeatMode =
   (typeof CLI_REPEAT_MODE)[keyof typeof CLI_REPEAT_MODE];
 
+export type CliLongOptionFlag = `--${string}`;
+export type CliOptionFlag = `-${string}`;
+
 export type CliArgBinding<Name extends string = string> =
   | {
       readonly kind: typeof CLI_ARG_KIND.option;
       readonly parameterName: Name;
-      readonly flags: readonly string[];
+      readonly flags: readonly CliOptionFlag[];
       readonly booleanMode?: CliBooleanMode;
       readonly negated?: true;
       readonly repeatMode?: typeof CLI_REPEAT_MODE.commaOrRepeat;
@@ -51,23 +54,20 @@ export type CliArgBinding<Name extends string = string> =
       readonly variadic: boolean;
     };
 
-export interface CliEntryBinding<Name extends string = string> {
+export type CliEntryBinding<Name extends string = string> = {
   readonly parameters: readonly CliArgBinding<Name>[];
-}
+};
 
-export interface CliSegment {
+export type CliSegment = {
   readonly token: string;
   readonly aliases: readonly string[];
-}
+};
 
 export function bindCliEntry<
   const Bindings extends readonly CliArgBinding[],
 >(binding: {
   readonly parameters: Bindings;
-}): TypedEntryChannelBinding<
-  typeof CHANNEL.cli,
-  Bindings[number]["parameterName"]
-> {
+}): EntryChannelBinding<typeof CHANNEL.cli, Bindings[number]["parameterName"]> {
   return createEntryChannelBinding(CHANNEL.cli, binding);
 }
 
@@ -77,7 +77,7 @@ export function overrideCliSegment(
   return createChannelSegmentOverride(CHANNEL.cli, segment);
 }
 
-export interface CliHelpOption {
+export type CliHelpOption = {
   readonly parameterName: string;
   readonly flags: readonly string[];
   readonly description: string;
@@ -86,18 +86,18 @@ export interface CliHelpOption {
   readonly negativeFlags: readonly string[];
   readonly repeatMode: CliRepeatMode | null;
   readonly defaultValue: JsonValue | undefined;
-}
+};
 
-export interface CliHelpPositional {
+export type CliHelpPositional = {
   readonly parameterName: string;
   readonly valueName: string;
   readonly description: string;
   readonly required: boolean;
   readonly variadic: boolean;
   readonly defaultValue: JsonValue | undefined;
-}
+};
 
-export interface CliHelpSurface {
+export type CliHelpSurface = {
   readonly name: string;
   readonly token: string | null;
   readonly aliases: readonly string[];
@@ -106,7 +106,7 @@ export interface CliHelpSurface {
   readonly options: readonly CliHelpOption[];
   readonly positionals: readonly CliHelpPositional[];
   readonly children: readonly CliHelpSurface[];
-}
+};
 
 export type CliRouterResult =
   | {

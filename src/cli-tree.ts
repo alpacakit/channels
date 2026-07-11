@@ -36,13 +36,13 @@ import { CHANNEL, ENTRY_DECODE_RESULT_KIND } from "./values.js";
 
 const CLI_POSITIONAL_SEPARATOR = "--";
 
-interface CompiledCliNode {
+type CompiledCliNode = {
   readonly path: readonly string[];
   readonly segment: CliSegment;
   readonly endpoint: CompiledCliEndpoint | null;
   readonly childByToken: ReadonlyMap<string, CompiledCliNode>;
   readonly help: CliHelpSurface;
-}
+};
 
 export function createCliRouter(tree: EntryTreeDefinition): CliRouter {
   const root = compileCliTree(tree);
@@ -67,7 +67,7 @@ function compileCliTree(tree: EntryTreeDefinition): CompiledCliNode {
     visitNode(node, path) {
       nodeRecords.set(node, {
         path,
-        segment: cliSegmentFor(node, path, issues),
+        segment: cliSegmentFor(node, path, node === tree.root, issues),
         endpoint: cliEndpointFor(node, path, issues),
       });
     },
@@ -150,20 +150,45 @@ function compileCliTree(tree: EntryTreeDefinition): CompiledCliNode {
 function cliSegmentFor(
   node: EntryTreeNode,
   path: readonly string[],
+  root: boolean,
   issues: string[],
 ): CliSegment {
   const override = node.segments.find((row) => row.channel === CHANNEL.cli);
+  let segment: CliSegment;
   if (!override) {
-    return { token: node.name, aliases: [] };
-  }
-  if (!isCliSegment(override.segment)) {
+    segment = { token: node.name, aliases: [] };
+  } else if (!isCliSegment(override.segment)) {
     issues.push(`${formatTreePath(path)}: invalid CLI segment override`);
-    return { token: node.name, aliases: [] };
+    segment = { token: node.name, aliases: [] };
+  } else {
+    segment = override.segment;
   }
-  if (override.segment.token.length === 0) {
-    issues.push(`${formatTreePath(path)}: CLI segment token must not be empty`);
+  if (!root) {
+    validateCliCommandToken(segment.token, "token", path, issues);
+    for (const alias of segment.aliases) {
+      validateCliCommandToken(alias, "alias", path, issues);
+    }
   }
-  return override.segment;
+  return segment;
+}
+
+function validateCliCommandToken(
+  token: string,
+  kind: "token" | "alias",
+  path: readonly string[],
+  issues: string[],
+): void {
+  if (token.length === 0) {
+    issues.push(
+      `${formatTreePath(path)}: CLI segment ${kind} must not be empty`,
+    );
+    return;
+  }
+  if (token === CLI_POSITIONAL_SEPARATOR || token.startsWith("-")) {
+    issues.push(
+      `${formatTreePath(path)}: CLI segment ${kind} ${JSON.stringify(token)} is unreachable`,
+    );
+  }
 }
 
 function cliEndpointFor(
