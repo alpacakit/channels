@@ -11,9 +11,6 @@ export const PARAMETER_PRESENCE = {
   optional: "optional",
 } as const;
 
-export type ParameterPresence =
-  (typeof PARAMETER_PRESENCE)[keyof typeof PARAMETER_PRESENCE];
-
 export const VALUE_SHAPE_KIND = {
   string: "string",
   boolean: "boolean",

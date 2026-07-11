@@ -18,11 +18,7 @@ import {
   optional,
   required,
 } from "../src/index.js";
-import {
-  bindMcpEntry,
-  createMcpInputSchema,
-  defineMcpBinding,
-} from "../src/mcp.js";
+import { bindMcpEntry, createMcpInputSchema } from "../src/mcp.js";
 
 const DefaultEntry = defineEntry({
   name: "default",
@@ -62,13 +58,13 @@ const HintEntry = defineEntry({
   project: ({ values }) => ({ command: "hint", ...values }),
 });
 
-const HintMcpBinding = defineMcpBinding({
+const HintMcpBinding = {
   parameters: [
     { parameterName: "query" },
     { parameterName: "tag" },
     { parameterName: "verbose" },
   ],
-});
+} as const;
 
 const HintEndpoint = defineEntryEndpoint(
   HintEntry,

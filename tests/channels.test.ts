@@ -18,7 +18,6 @@ import {
   bindMcpEntry,
   createMcpInputSchema,
   createMcpOutputSchema,
-  defineMcpBinding,
   parseMcpEntry,
 } from "../src/mcp.js";
 
@@ -67,13 +66,13 @@ const TestEntry = defineEntry({
   project: ({ values }) => values,
 });
 
-const TestMcpBinding = defineMcpBinding({
+const TestMcpBinding = {
   parameters: [
     { parameterName: "symbol" },
     { parameterName: "intent" },
     { parameterName: "depth" },
   ],
-});
+} as const;
 
 const TestEndpoint = defineEntryEndpoint(
   TestEntry,
@@ -99,7 +98,7 @@ const TestOutputEntry = defineEntry({
 
 const TestOutputEndpoint = defineEntryEndpoint(
   TestOutputEntry,
-  bindMcpEntry(defineMcpBinding({ parameters: [] })),
+  bindMcpEntry({ parameters: [] }),
 );
 
 const OutputlessEntry = defineEntry<
@@ -133,7 +132,7 @@ const NonObjectSchemaEntry = defineEntry({
 
 const NonObjectSchemaEndpoint = defineEntryEndpoint(
   NonObjectSchemaEntry,
-  bindMcpEntry(defineMcpBinding({ parameters: [] })),
+  bindMcpEntry({ parameters: [] }),
 );
 
 describe("@alpacaloop/channels MCP binding", () => {
@@ -198,9 +197,7 @@ describe("@alpacaloop/channels MCP binding", () => {
     });
     const endpoint = defineEntryEndpoint(
       entry,
-      bindMcpEntry(
-        defineMcpBinding({ parameters: [{ parameterName: "count" }] }),
-      ),
+      bindMcpEntry({ parameters: [{ parameterName: "count" }] }),
     );
 
     expect(parseMcpEntry({ endpoint, raw: {} })).toMatchObject({
@@ -213,7 +210,7 @@ describe("@alpacaloop/channels MCP binding", () => {
     const endpointFor = (project: () => unknown) =>
       defineEntryEndpoint(
         defineEntry({ name: "error", parameters: [], project }),
-        bindMcpEntry(defineMcpBinding({ parameters: [] })),
+        bindMcpEntry({ parameters: [] }),
       );
     const internalError = new Error("domain bug");
 
