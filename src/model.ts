@@ -4,22 +4,18 @@ import type {
   RuntimeCodec,
 } from "@alpacaloop/core";
 import type { z } from "zod";
+import {
+  type Channel,
+  PARAMETER_PRESENCE,
+  type VALUE_SHAPE_KIND,
+} from "./values.js";
 
-export const PARAMETER_PRESENCE = {
-  required: "required",
-  optional: "optional",
-} as const;
-
-export type ParameterPresence =
-  (typeof PARAMETER_PRESENCE)[keyof typeof PARAMETER_PRESENCE];
-
-export const VALUE_SHAPE_KIND = {
-  string: "string",
-  boolean: "boolean",
-  positiveInteger: "positive_integer",
-  stringEnum: "string_enum",
-  array: "array",
-} as const;
+declare const EntryTreeDefinitionBrand: unique symbol;
+declare const EntryTreeNodeBrand: unique symbol;
+declare const EntryTreeEndpointBrand: unique symbol;
+declare const ChannelSegmentOverrideBrand: unique symbol;
+declare const EntryChannelBindingBrand: unique symbol;
+declare const EntryChannelBindingParameterNames: unique symbol;
 
 export type ValueShape =
   | { readonly kind: typeof VALUE_SHAPE_KIND.string }
@@ -91,6 +87,46 @@ export interface EntryDefinition<
   project(input: { readonly values: ParameterValues<Parameters> }): Projection;
   readonly output?: OutputContract<Output>;
 }
+
+export interface EntryTreeDefinition {
+  readonly root: EntryTreeNode;
+  readonly [EntryTreeDefinitionBrand]: true;
+}
+
+export interface EntryTreeNode {
+  readonly name: string;
+  readonly description: string;
+  readonly segments: readonly ChannelSegmentOverride[];
+  readonly endpoints: readonly EntryTreeEndpoint[];
+  readonly children: readonly EntryTreeNode[];
+  readonly [EntryTreeNodeBrand]: true;
+}
+
+export interface EntryTreeEndpoint {
+  readonly entry: EntryDefinition<string, ParameterSet, unknown>;
+  readonly channels: readonly EntryChannelBinding[];
+  readonly [EntryTreeEndpointBrand]: true;
+}
+
+export interface ChannelSegmentOverride {
+  readonly channel: Channel;
+  readonly segment: unknown;
+  readonly [ChannelSegmentOverrideBrand]: true;
+}
+
+export interface EntryChannelBinding {
+  readonly channel: Channel;
+  readonly binding: unknown;
+  readonly [EntryChannelBindingBrand]: true;
+}
+
+export type TypedEntryChannelBinding<
+  ChannelName extends Channel,
+  ParameterName extends string,
+> = EntryChannelBinding & {
+  readonly channel: ChannelName;
+  readonly [EntryChannelBindingParameterNames]: ParameterName;
+};
 
 export type EntryDefinitionWithOutput<
   Name extends string,

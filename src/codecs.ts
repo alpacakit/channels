@@ -1,10 +1,11 @@
 import {
   createSchemaRuntimeCodec,
-  readonlyArraySchema,
   type JsonValue,
+  readonlyArraySchema,
 } from "@alpacaloop/core";
 import { z } from "zod";
-import { VALUE_SHAPE_KIND, type ValueCodec, type ValueShape } from "./model.js";
+import type { ValueCodec, ValueShape } from "./model.js";
+import { VALUE_SHAPE_KIND } from "./values.js";
 
 function defineValueCodec<Value extends JsonValue>(input: {
   readonly schema: z.ZodType<Value>;
