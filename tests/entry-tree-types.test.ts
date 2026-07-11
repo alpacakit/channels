@@ -16,6 +16,7 @@ import {
   type EntryTreeDefinition,
   type EntryTreeEndpoint,
   type EntryTreeNode,
+  optional,
   required,
 } from "../src/index.js";
 import { bindMcpEntry, defineMcpBinding, parseMcpEntry } from "../src/mcp.js";
@@ -28,7 +29,7 @@ describe("entry tree builder types", () => {
         defineParameter({
           name: "query",
           codec: codecs.string(),
-          requirement: required<string>(),
+          requirement: required(),
           description: "Query",
         }),
       ],
@@ -75,16 +76,13 @@ describe("entry tree builder types", () => {
 
     const result = createCliRouter(tree).resolve(["--query", "value"]);
     if (isCliResolvedEndpoint(result, endpoint)) {
-      expectTypeOf(result.entry).toEqualTypeOf<typeof entry>();
-      const projection: string | undefined = result.projection;
-      const values: { readonly query?: string } = result.values;
-      expectTypeOf(projection).toEqualTypeOf<string | undefined>();
-      expectTypeOf(values).toEqualTypeOf<{ readonly query?: string }>();
+      const projection: string = result.projection;
+      expectTypeOf(projection).toEqualTypeOf<string>();
     }
     const mcpResult = parseMcpEntry({ endpoint, raw: { query: "value" } });
     if (mcpResult.kind === ENTRY_DECODE_RESULT_KIND.resolved) {
-      const projection: string | undefined = mcpResult.projection;
-      expectTypeOf(projection).toEqualTypeOf<string | undefined>();
+      const projection: string = mcpResult.projection;
+      expectTypeOf(projection).toEqualTypeOf<string>();
     }
 
     const invalidCli = bindCliEntry({
@@ -99,5 +97,78 @@ describe("entry tree builder types", () => {
     defineEntryEndpoint(entry, invalidCli);
     // @ts-expect-error MCP bindings use the same NoInfer constraint
     defineEntryEndpoint(entry, invalidMcp);
+  });
+
+  it("materializes required and defaulted values in projection types", () => {
+    defineEntry({
+      name: "materialized",
+      parameters: [
+        defineParameter({
+          name: "requiredValue",
+          codec: codecs.string(),
+          requirement: required(),
+          description: "Required",
+        }),
+        defineParameter({
+          name: "defaultedValue",
+          codec: codecs.positiveInteger(),
+          requirement: optional<number>({ default: 2 }),
+          description: "Defaulted",
+        }),
+        defineParameter({
+          name: "omittedValue",
+          codec: codecs.boolean(),
+          requirement: optional<boolean>(),
+          description: "Omitted",
+        }),
+      ],
+      project: ({ values }) => {
+        expectTypeOf(values.requiredValue).toEqualTypeOf<string>();
+        expectTypeOf(values.defaultedValue).toEqualTypeOf<number>();
+        expectTypeOf(values.omittedValue).toEqualTypeOf<boolean | undefined>();
+        return values;
+      },
+    });
+  });
+
+  it("stores only non-default CLI binding choices", () => {
+    bindCliEntry({
+      parameters: [
+        {
+          kind: "option",
+          parameterName: "items",
+          flags: ["--item"],
+          repeatMode: "comma_or_repeat",
+        },
+        {
+          kind: "option",
+          parameterName: "enabled",
+          flags: ["--enabled"],
+          negated: true,
+        },
+      ],
+    });
+    bindCliEntry({
+      parameters: [
+        {
+          kind: "option",
+          parameterName: "items",
+          flags: ["--item"],
+          // @ts-expect-error repeated values are the implicit array default
+          repeatMode: "repeat",
+        },
+      ],
+    });
+    bindCliEntry({
+      parameters: [
+        {
+          kind: "option",
+          parameterName: "enabled",
+          flags: ["--enabled"],
+          // @ts-expect-error absence represents the non-negated choice
+          negated: false,
+        },
+      ],
+    });
   });
 });

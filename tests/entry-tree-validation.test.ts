@@ -239,7 +239,7 @@ describe("Phase-A entry tree definition validation", () => {
         kind: "option",
         parameterName: "text",
         flags: ["--text"],
-        repeatMode: "repeat",
+        repeatMode: "comma_or_repeat",
       },
       "repeatMode contradicts",
     ],

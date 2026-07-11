@@ -9,7 +9,6 @@ import {
   CLI_ARG_KIND,
   CLI_REPEAT_MODE,
   type CliArgBinding,
-  type CliBooleanMode,
   type CliEntryBinding,
   type CliHelpOption,
   type CliHelpSurface,
@@ -53,7 +52,6 @@ interface CompiledCliOptionBase {
 export type CompiledCliOption =
   | (CompiledCliOptionBase & {
       readonly kind: typeof CLI_OPTION_PLAN_KIND.booleanFlag;
-      readonly positiveFlags: readonly string[];
       readonly negativeFlags: readonly string[];
     })
   | (CompiledCliOptionBase & {
@@ -62,7 +60,6 @@ export type CompiledCliOption =
         | typeof CLI_OPTION_VALUE_MODE.replace
         | typeof CLI_OPTION_VALUE_MODE.repeat
         | typeof CLI_OPTION_VALUE_MODE.commaOrRepeat;
-      readonly booleanMode: CliBooleanMode | null;
     });
 
 export type CompiledCliPositional = {
@@ -175,7 +172,6 @@ function compileCliOption(
           row.repeatMode === CLI_REPEAT_MODE.commaOrRepeat
             ? CLI_OPTION_VALUE_MODE.commaOrRepeat
             : CLI_OPTION_VALUE_MODE.repeat,
-        booleanMode: null,
       };
     case VALUE_SHAPE_KIND.positiveInteger:
     case VALUE_SHAPE_KIND.string:
@@ -191,7 +187,6 @@ function compileCliOption(
         parameter,
         flags: row.flags,
         valueMode: CLI_OPTION_VALUE_MODE.replace,
-        booleanMode: null,
       };
   }
 }
@@ -225,7 +220,6 @@ function compileCliBooleanOption(
       parameter,
       flags: row.flags,
       valueMode: CLI_OPTION_VALUE_MODE.replace,
-      booleanMode,
     };
   }
   const negativeFlags = row.negated
@@ -242,7 +236,6 @@ function compileCliBooleanOption(
     kind: CLI_OPTION_PLAN_KIND.booleanFlag,
     parameter,
     flags: row.flags,
-    positiveFlags: row.flags,
     negativeFlags,
   };
 }
@@ -299,7 +292,7 @@ function createCliOptionActionIndex(
   const actions = new Map<string, CliOptionAction>();
   for (const option of options) {
     if (option.kind === CLI_OPTION_PLAN_KIND.booleanFlag) {
-      for (const token of option.positiveFlags) {
+      for (const token of option.flags) {
         registerCliOptionAction(
           actions,
           token,
@@ -404,8 +397,12 @@ function cliHelpOptionFor(option: CompiledCliOption): CliHelpOption {
     description: option.parameter.description,
     required:
       option.parameter.requirement.presence === PARAMETER_PRESENCE.required,
-    booleanMode: booleanFlag ? CLI_BOOLEAN_MODE.flag : option.booleanMode,
-    negated: booleanFlag && option.negativeFlags.length > 0,
+    booleanMode: booleanFlag
+      ? CLI_BOOLEAN_MODE.flag
+      : option.parameter.codec.shape.kind === VALUE_SHAPE_KIND.boolean
+        ? CLI_BOOLEAN_MODE.value
+        : null,
+    negativeFlags: booleanFlag ? option.negativeFlags : [],
     repeatMode: cliHelpRepeatMode(option),
     defaultValue: option.parameter.requirement.defaultValue,
   };

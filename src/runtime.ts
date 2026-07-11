@@ -16,10 +16,9 @@ export class EntryInputError extends Error {
   }
 }
 
-export type EntryDecodeResult<Parameters extends ParameterSet, Projection> =
+export type EntryDecodeResult<Projection> =
   | {
       readonly kind: typeof ENTRY_DECODE_RESULT_KIND.resolved;
-      readonly values: ParameterValues<Parameters>;
       readonly projection: Projection;
     }
   | {
@@ -32,16 +31,18 @@ export type EntryDecodeResult<Parameters extends ParameterSet, Projection> =
       readonly error: unknown;
     };
 
+type InvalidParameterDecodeResult = {
+  readonly kind: typeof ENTRY_DECODE_RESULT_KIND.invalidInput;
+  readonly parameterName: string | null;
+  readonly issues: readonly string[];
+};
+
 export type ParameterDecodeResult<Parameters extends ParameterSet> =
   | {
       readonly kind: typeof ENTRY_DECODE_RESULT_KIND.resolved;
       readonly values: ParameterValues<Parameters>;
     }
-  | {
-      readonly kind: typeof ENTRY_DECODE_RESULT_KIND.invalidInput;
-      readonly parameterName: string | null;
-      readonly issues: readonly string[];
-    };
+  | InvalidParameterDecodeResult;
 
 export type RawValueCoercer = (
   parameter: ParameterDefinition<string, JsonValue>,
@@ -79,6 +80,7 @@ export function decodeParameterValues<
   readonly coerce?: RawValueCoercer;
 }): ParameterDecodeResult<Parameters> {
   const output = new Map<string, JsonValue>();
+  const boundParameterNames = new Set(input.parameterNames);
   for (const parameterName of input.parameterNames) {
     const parameter = findParameter(input.parameters, parameterName);
     if (parameter === null) {
@@ -86,7 +88,14 @@ export function decodeParameterValues<
         `Unknown parameter binding: ${parameterName}`,
       ]);
     }
-    const candidate = resolveParameterCandidate(parameter, input.raw);
+  }
+  for (const parameter of input.parameters) {
+    const candidate = resolveParameterCandidate(
+      parameter,
+      boundParameterNames.has(parameter.name)
+        ? input.raw[parameter.name]
+        : undefined,
+    );
     if (candidate.kind === PARAMETER_CANDIDATE_KIND.omitted) {
       continue;
     }
@@ -121,9 +130,8 @@ export function decodeParameterValues<
 
 function resolveParameterCandidate(
   parameter: ParameterDefinition<string, JsonValue>,
-  raw: RawValueMap,
+  rawValue: unknown,
 ): ParameterCandidate {
-  const rawValue = raw[parameter.name];
   if (rawValue !== undefined) {
     return { kind: PARAMETER_CANDIDATE_KIND.raw, value: rawValue };
   }
@@ -148,7 +156,7 @@ export function decodeEntryInput<
   readonly parameterNames: readonly string[];
   readonly raw: RawValueMap;
   readonly coerce?: RawValueCoercer;
-}): EntryDecodeResult<Entry["parameters"], ReturnType<Entry["project"]>> {
+}): EntryDecodeResult<ReturnType<Entry["project"]>> {
   const decoded = decodeParameterValues({
     parameters: input.entry.parameters,
     parameterNames: input.parameterNames,
@@ -161,7 +169,6 @@ export function decodeEntryInput<
   try {
     return {
       kind: ENTRY_DECODE_RESULT_KIND.resolved,
-      values: decoded.values,
       projection: input.entry.project({
         values: decoded.values,
       }) as ReturnType<Entry["project"]>,
@@ -180,7 +187,7 @@ export function decodeEntryInput<
 function invalidParameter(
   parameterName: string,
   issues: readonly string[],
-): ParameterDecodeResult<ParameterSet> {
+): InvalidParameterDecodeResult {
   return {
     kind: ENTRY_DECODE_RESULT_KIND.invalidInput,
     parameterName,

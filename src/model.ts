@@ -41,23 +41,31 @@ export interface OutputContract<Value extends JsonValue> {
   decode(input: unknown): CodecDecodeResult<Value>;
 }
 
+export type RequiredParameterRequirement = {
+  readonly presence: typeof PARAMETER_PRESENCE.required;
+  readonly defaultValue: undefined;
+};
+
+export type OptionalParameterRequirement<
+  Value extends JsonValue,
+  Default extends Value | undefined = Value | undefined,
+> = {
+  readonly presence: typeof PARAMETER_PRESENCE.optional;
+  readonly defaultValue: Default;
+};
+
 export type ParameterRequirement<Value extends JsonValue> =
-  | {
-      readonly presence: typeof PARAMETER_PRESENCE.required;
-      readonly defaultValue: undefined;
-    }
-  | {
-      readonly presence: typeof PARAMETER_PRESENCE.optional;
-      readonly defaultValue: Value | undefined;
-    };
+  | RequiredParameterRequirement
+  | OptionalParameterRequirement<Value>;
 
 export interface ParameterDefinition<
   Name extends string,
   Value extends JsonValue,
+  Requirement extends ParameterRequirement<Value> = ParameterRequirement<Value>,
 > {
   readonly name: Name;
   readonly codec: ValueCodec<Value>;
-  readonly requirement: ParameterRequirement<Value>;
+  readonly requirement: Requirement;
   readonly description: string;
 }
 
@@ -67,13 +75,29 @@ export type RawValueMap = {
   readonly [key: string]: unknown;
 };
 
+type ParameterValue<Parameter extends ParameterDefinition<string, JsonValue>> =
+  Parameter extends ParameterDefinition<string, infer Value> ? Value : never;
+
+type ParameterMaterialization<Parameter extends ParameterSet[number]> =
+  Parameter["requirement"] extends RequiredParameterRequirement
+    ? true
+    : Parameter["requirement"] extends OptionalParameterRequirement<
+          JsonValue,
+          JsonValue
+        >
+      ? true
+      : false;
+
+type MaterializedParameter<Parameter extends ParameterSet[number]> =
+  ParameterMaterialization<Parameter> extends true ? Parameter : never;
+
+type OmittedParameter<Parameter extends ParameterSet[number]> =
+  ParameterMaterialization<Parameter> extends false ? Parameter : never;
+
 export type ParameterValues<Parameters extends ParameterSet> = {
-  readonly [Parameter in Parameters[number] as Parameter["name"]]?: Parameter extends ParameterDefinition<
-    string,
-    infer Value
-  >
-    ? Value
-    : never;
+  readonly [Parameter in Parameters[number] as MaterializedParameter<Parameter>["name"]]-?: ParameterValue<Parameter>;
+} & {
+  readonly [Parameter in Parameters[number] as OmittedParameter<Parameter>["name"]]?: ParameterValue<Parameter>;
 };
 
 export interface EntryDefinition<
@@ -145,9 +169,10 @@ export type EntryDefinitionWithOutput<
 export function defineParameter<
   const Name extends string,
   Value extends JsonValue,
+  const Requirement extends ParameterRequirement<Value>,
 >(
-  parameter: ParameterDefinition<Name, Value>,
-): ParameterDefinition<Name, Value> {
+  parameter: ParameterDefinition<Name, Value, Requirement>,
+): ParameterDefinition<Name, Value, Requirement> {
   return parameter;
 }
 
@@ -178,18 +203,22 @@ export function defineEntry<
   return entry;
 }
 
-export function required<
-  Value extends JsonValue,
->(): ParameterRequirement<Value> {
+export function required(): RequiredParameterRequirement {
   return {
     presence: PARAMETER_PRESENCE.required,
     defaultValue: undefined,
   };
 }
 
+export function optional<
+  Value extends JsonValue,
+>(): OptionalParameterRequirement<Value, undefined>;
+export function optional<Value extends JsonValue>(input: {
+  readonly default: Value;
+}): OptionalParameterRequirement<Value, Value>;
 export function optional<Value extends JsonValue>(
   input: { readonly default?: Value } = {},
-): ParameterRequirement<Value> {
+): OptionalParameterRequirement<Value> {
   return {
     presence: PARAMETER_PRESENCE.optional,
     defaultValue: input.default,

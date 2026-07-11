@@ -163,7 +163,7 @@ function unwrapZodSchema<Output>(schema: z.ZodType<Output>): z.ZodType<Output> {
 }
 
 export type McpEntryParseResult<Entry extends EntryTreeEndpoint["entry"]> =
-  EntryDecodeResult<Entry["parameters"], ReturnType<Entry["project"]>>;
+  EntryDecodeResult<ReturnType<Entry["project"]>>;
 
 export function parseMcpEntry<
   const Entry extends EntryTreeEndpoint["entry"],
