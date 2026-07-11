@@ -37,11 +37,9 @@ import { CHANNEL, ENTRY_DECODE_RESULT_KIND } from "./values.js";
 const CLI_POSITIONAL_SEPARATOR = "--";
 
 interface CompiledCliNode {
-  readonly source: EntryTreeNode;
   readonly path: readonly string[];
   readonly segment: CliSegment;
   readonly endpoint: CompiledCliEndpoint | null;
-  readonly children: readonly CompiledCliNode[];
   readonly childByToken: ReadonlyMap<string, CompiledCliNode>;
   readonly help: CliHelpSurface;
 }
@@ -122,11 +120,9 @@ function compileCliTree(tree: EntryTreeDefinition): CompiledCliNode {
       }
     }
     const compiledNode: CompiledCliNode = {
-      source: node,
       path: record.path,
       segment: record.segment,
       endpoint: record.endpoint,
-      children,
       childByToken,
       help: createCliHelpSurface({
         node,
@@ -204,10 +200,10 @@ function validateCliChildren(
       const owner = tokens.get(token);
       if (owner !== undefined) {
         issues.push(
-          `${formatTreePath(path)}: CLI sibling token/alias collision ${JSON.stringify(token)} between ${owner} and ${child.source.name}`,
+          `${formatTreePath(path)}: CLI sibling token/alias collision ${JSON.stringify(token)} between ${owner} and ${child.help.name}`,
         );
       } else {
-        tokens.set(token, child.source.name);
+        tokens.set(token, child.help.name);
       }
     }
   }
@@ -235,7 +231,7 @@ function resolveCli(
   const unmatchedToken = argv[index];
   if (
     node.endpoint !== null &&
-    node.children.length > 0 &&
+    node.childByToken.size > 0 &&
     unmatchedToken !== undefined &&
     unmatchedToken !== CLI_POSITIONAL_SEPARATOR &&
     !unmatchedToken.startsWith("-")
@@ -259,9 +255,9 @@ function resolveCli(
   if (rawResult.kind === CLI_ROUTER_RESULT_KIND.invalidInput) {
     return { ...rawResult, path: node.path };
   }
-  const entry = node.endpoint.endpoint.entry;
+  const endpoint = node.endpoint.endpoint;
   const decoded = decodeEntryInput({
-    entry,
+    entry: endpoint.entry,
     parameterNames: node.endpoint.parameterNames,
     raw: rawResult.raw,
     coerce: (parameter, rawValue) =>
@@ -272,9 +268,7 @@ function resolveCli(
       return {
         kind: CLI_ROUTER_RESULT_KIND.resolved,
         path: node.path,
-        endpoint: node.endpoint.endpoint,
-        entry,
-        values: decoded.values,
+        endpoint,
         projection: decoded.projection,
       };
     case ENTRY_DECODE_RESULT_KIND.invalidInput:

@@ -1,10 +1,7 @@
 import type { JsonValue } from "@alpacaloop/core";
 import type {
   ChannelSegmentOverride,
-  EntryDefinition,
   EntryTreeEndpoint,
-  ParameterSet,
-  ParameterValues,
   TypedEntryChannelBinding,
 } from "./model.js";
 import type { CLI_BOOLEAN_MODE } from "./cli-values.js";
@@ -44,8 +41,8 @@ export type CliArgBinding<Name extends string = string> =
       readonly parameterName: Name;
       readonly flags: readonly string[];
       readonly booleanMode?: CliBooleanMode;
-      readonly negated?: boolean;
-      readonly repeatMode?: CliRepeatMode;
+      readonly negated?: true;
+      readonly repeatMode?: typeof CLI_REPEAT_MODE.commaOrRepeat;
     }
   | {
       readonly kind: typeof CLI_ARG_KIND.positional;
@@ -86,7 +83,7 @@ export interface CliHelpOption {
   readonly description: string;
   readonly required: boolean;
   readonly booleanMode: CliBooleanMode | null;
-  readonly negated: boolean;
+  readonly negativeFlags: readonly string[];
   readonly repeatMode: CliRepeatMode | null;
   readonly defaultValue: JsonValue | undefined;
 }
@@ -116,8 +113,6 @@ export type CliRouterResult =
       readonly kind: typeof CLI_ROUTER_RESULT_KIND.resolved;
       readonly path: readonly string[];
       readonly endpoint: EntryTreeEndpoint;
-      readonly entry: EntryDefinition<string, ParameterSet, unknown>;
-      readonly values: ParameterValues<ParameterSet>;
       readonly projection: unknown;
     }
   | {
@@ -147,11 +142,9 @@ export type CliResolvedEndpointResult<Endpoint extends EntryTreeEndpoint> =
       CliRouterResult,
       { readonly kind: typeof CLI_ROUTER_RESULT_KIND.resolved }
     >,
-    "endpoint" | "entry" | "values" | "projection"
+    "endpoint" | "projection"
   > & {
     readonly endpoint: Endpoint;
-    readonly entry: Endpoint["entry"];
-    readonly values: ParameterValues<Endpoint["entry"]["parameters"]>;
     readonly projection: ReturnType<Endpoint["entry"]["project"]>;
   };
 

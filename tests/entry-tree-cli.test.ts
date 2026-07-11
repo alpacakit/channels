@@ -271,6 +271,13 @@ describe("CLI entry tree router", () => {
         verbose: false,
       },
     });
+    const hintHelp = router.help.children.find(
+      (child) => child.name === "hint",
+    );
+    const verboseHelp = hintHelp?.options.find(
+      (option) => option.parameterName === "verbose",
+    );
+    expect(verboseHelp?.negativeFlags).toEqual(["--no-verbose"]);
   });
 
   it("uses the deepest command match and supports a four-level tree", () => {

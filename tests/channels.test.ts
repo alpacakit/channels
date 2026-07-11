@@ -167,13 +167,19 @@ describe("@alpacaloop/channels MCP binding", () => {
 
     const result = parseMcpEntry({
       endpoint: TestEndpoint,
-      raw: { symbol: ["AdapterContext"] },
+      raw: {
+        symbol: ["AdapterContext"],
+        internalOnly: "ignored channel input",
+      },
     });
 
     expect(result).toEqual({
       kind: ENTRY_DECODE_RESULT_KIND.resolved,
-      values: { symbol: ["AdapterContext"], depth: 2 },
-      projection: { symbol: ["AdapterContext"], depth: 2 },
+      projection: {
+        symbol: ["AdapterContext"],
+        depth: 2,
+        verbose: false,
+      },
     });
   });
 
