@@ -7,7 +7,7 @@ export const CLI_VALUE_KIND = {
   boolean: "boolean",
 } as const;
 
-export type CliValueKind = (typeof CLI_VALUE_KIND)[keyof typeof CLI_VALUE_KIND];
+type CliValueKind = (typeof CLI_VALUE_KIND)[keyof typeof CLI_VALUE_KIND];
 
 export { CLI_BOOLEAN_MODE } from "./cli-values.js";
 
@@ -145,25 +145,6 @@ export function stringOptionDefinition(
     description,
     kind: CLI_VALUE_KIND.string,
     multiple: false,
-    choices: EmptyCliOptionChoices,
-    booleanMode: null,
-    valueName: name,
-    defaultValue,
-  };
-}
-
-export function repeatedStringOptionDefinition(
-  name: string,
-  flags: readonly string[],
-  description: string,
-  defaultValue: readonly string[] | null = null,
-): CliRepeatedStringOptionDescriptor {
-  return {
-    name,
-    flags,
-    description,
-    kind: CLI_VALUE_KIND.string,
-    multiple: true,
     choices: EmptyCliOptionChoices,
     booleanMode: null,
     valueName: name,

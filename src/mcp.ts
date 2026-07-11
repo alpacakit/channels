@@ -34,16 +34,6 @@ export type McpBinding<Parameters extends ParameterSet = ParameterSet> = {
   >[];
 };
 
-export function defineMcpBinding<const Binding extends McpBinding>(
-  binding: Binding,
-): Binding;
-export function defineMcpBinding<const Parameters extends ParameterSet>(
-  binding: McpBinding<Parameters>,
-): McpBinding<Parameters>;
-export function defineMcpBinding(binding: McpBinding): McpBinding {
-  return binding;
-}
-
 export function bindMcpEntry<
   const Binding extends {
     readonly parameters: readonly McpParameterBinding[];
