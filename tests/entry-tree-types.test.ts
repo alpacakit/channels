@@ -44,10 +44,10 @@ describe("entry tree builder types", () => {
         { kind: "option", parameterName: "query", flags: ["--query"] },
       ],
     });
-    const explicitMcp = {
-      parameters: [{ parameterName: "query" }],
-    } as const satisfies McpBinding<typeof entry.parameters>;
-    const mcp = bindMcpEntry(explicitMcp);
+    const explicitMcp = ["query"] as const satisfies McpBinding<
+      typeof entry.parameters
+    >;
+    const mcp = bindMcpEntry(...explicitMcp);
     const endpoint = defineEntryEndpoint(entry, cli, mcp);
     const tree = defineEntryTree(
       defineEntryNode({
@@ -60,9 +60,7 @@ describe("entry tree builder types", () => {
 
     expectTypeOf(cli.binding).toEqualTypeOf<unknown>();
     expectTypeOf(cli).toMatchTypeOf<EntryChannelBinding<"cli", "query">>();
-    expectTypeOf(
-      explicitMcp.parameters[0].parameterName,
-    ).toEqualTypeOf<"query">();
+    expectTypeOf(explicitMcp[0]).toEqualTypeOf<"query">();
     expectTypeOf(endpoint).toMatchTypeOf<EntryTreeEndpoint>();
     expectTypeOf(endpoint).toEqualTypeOf<EntryTreeEndpoint<typeof entry>>();
     expectTypeOf(endpoint.entry).toEqualTypeOf<typeof entry>();
@@ -94,9 +92,7 @@ describe("entry tree builder types", () => {
         { kind: "option", parameterName: "missing", flags: ["--missing"] },
       ],
     });
-    const invalidMcp = bindMcpEntry({
-      parameters: [{ parameterName: "missing" }],
-    });
+    const invalidMcp = bindMcpEntry("missing");
     // @ts-expect-error the entry, not its bindings, fixes the parameter names
     defineEntryEndpoint(entry, invalidCli);
     // @ts-expect-error MCP bindings use the same NoInfer constraint

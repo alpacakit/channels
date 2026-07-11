@@ -207,12 +207,7 @@ An MCP Binding selects the Entry parameters exposed as tool input:
 ```ts
 import { bindMcpEntry } from "@alpacaloop/channels/mcp";
 
-const HintMcpBinding = bindMcpEntry({
-  parameters: [
-    { parameterName: "query" },
-    { parameterName: "limit" },
-  ],
-});
+const HintMcpBinding = bindMcpEntry("query", "limit");
 ```
 
 The mapping is:
@@ -668,7 +663,7 @@ const EntryWithOutput = defineEntry({
 
 const EndpointWithOutput = defineEntryEndpoint(
   EntryWithOutput,
-  bindMcpEntry({ parameters: [] }),
+  bindMcpEntry(),
 );
 
 const outputSchema = createMcpOutputSchema({

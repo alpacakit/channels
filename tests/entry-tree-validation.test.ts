@@ -386,9 +386,7 @@ describe("Phase-A entry tree definition validation", () => {
   it("applies duplicate, nonexistent and required-reachability checks to MCP", () => {
     const duplicate = defineEntryEndpoint(
       RequiredEntry,
-      bindMcpEntry({
-        parameters: [{ parameterName: "value" }, { parameterName: "value" }],
-      }),
+      bindMcpEntry("value", "value"),
     );
     expect(() => createMcpInputSchema({ endpoint: duplicate })).toThrow(
       "duplicate MCP binding",
@@ -401,16 +399,13 @@ describe("Phase-A entry tree definition validation", () => {
     >;
     const nonexistent = defineEntryEndpoint(
       erasedEntry,
-      bindMcpEntry({ parameters: [{ parameterName: "missing" }] }),
+      bindMcpEntry("missing"),
     );
     expect(() => createMcpInputSchema({ endpoint: nonexistent })).toThrow(
       "nonexistent parameter",
     );
 
-    const unreachable = defineEntryEndpoint(
-      RequiredEntry,
-      bindMcpEntry({ parameters: [] }),
-    );
+    const unreachable = defineEntryEndpoint(RequiredEntry, bindMcpEntry());
     expect(() => createMcpInputSchema({ endpoint: unreachable })).toThrow(
       "required parameter value is unreachable from MCP",
     );
