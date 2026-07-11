@@ -4,6 +4,7 @@ import {
   bindCliEntry,
   CLI_ROUTER_RESULT_KIND,
   createCliRouter,
+  isCliResolvedEndpoint,
   overrideCliSegment,
 } from "../src/cli.js";
 import {
@@ -217,6 +218,32 @@ function createAcceptanceTree() {
 }
 
 describe("CLI entry tree router", () => {
+  it("narrows only the resolved endpoint with matching identity", () => {
+    const router = createCliRouter(
+      defineEntryTree(
+        defineEntryNode({
+          name: "hint",
+          description: "Hint",
+          endpoints: [HintEndpoint],
+        }),
+      ),
+    );
+    const otherEndpoint = defineEntryEndpoint(
+      HintEntry,
+      bindCliEntry({
+        parameters: [
+          { kind: "option", parameterName: "query", flags: ["--query"] },
+          { kind: "option", parameterName: "tag", flags: ["--tag"] },
+          { kind: "option", parameterName: "verbose", flags: ["--verbose"] },
+        ],
+      }),
+    );
+    const result = router.resolve(["--query", "value"]);
+
+    expect(isCliResolvedEndpoint(result, HintEndpoint)).toBe(true);
+    expect(isCliResolvedEndpoint(result, otherEndpoint)).toBe(false);
+  });
+
   it("resolves the root default, overrides, aliases, options, repeats and negation", () => {
     const router = createCliRouter(createAcceptanceTree());
     expect(router.resolve([])).toMatchObject({
@@ -313,6 +340,90 @@ describe("CLI entry tree router", () => {
       kind: CLI_ROUTER_RESULT_KIND.resolved,
       projection: { item: ["value"] },
     });
+  });
+
+  it("projects option and positional defaults into the help surface", () => {
+    const entry = defineEntry({
+      name: "defaults",
+      parameters: [
+        defineParameter({
+          name: "text",
+          codec: codecs.string(),
+          requirement: optional({ default: "value" }),
+          description: "Text",
+        }),
+        defineParameter({
+          name: "count",
+          codec: codecs.positiveInteger(),
+          requirement: optional({ default: 2 }),
+          description: "Count",
+        }),
+        defineParameter({
+          name: "enabled",
+          codec: codecs.boolean(),
+          requirement: optional({ default: false }),
+          description: "Enabled",
+        }),
+        defineParameter({
+          name: "tags",
+          codec: codecs.stringList(),
+          requirement: optional({ default: ["core"] }),
+          description: "Tags",
+        }),
+        defineParameter({
+          name: "target",
+          codec: codecs.string(),
+          requirement: optional({ default: "src" }),
+          description: "Target",
+        }),
+      ],
+      project: ({ values }) => values,
+    });
+    const router = createCliRouter(
+      defineEntryTree(
+        defineEntryNode({
+          name: "defaults",
+          description: "Defaults",
+          endpoints: [
+            defineEntryEndpoint(
+              entry,
+              bindCliEntry({
+                parameters: [
+                  { kind: "option", parameterName: "text", flags: ["--text"] },
+                  {
+                    kind: "option",
+                    parameterName: "count",
+                    flags: ["--count"],
+                  },
+                  {
+                    kind: "option",
+                    parameterName: "enabled",
+                    flags: ["--enabled"],
+                  },
+                  { kind: "option", parameterName: "tags", flags: ["--tag"] },
+                  {
+                    kind: "positional",
+                    parameterName: "target",
+                    valueName: "target",
+                    variadic: false,
+                  },
+                ],
+              }),
+            ),
+          ],
+        }),
+      ),
+    );
+
+    expect(
+      Object.fromEntries(
+        router.help.options.map((option) => [
+          option.parameterName,
+          option.defaultValue,
+        ]),
+      ),
+    ).toEqual({ text: "value", count: 2, enabled: false, tags: ["core"] });
+    expect(router.help.positionals[0]?.defaultValue).toBe("src");
   });
 
   it("builds help for a deeply nested tree without recursion", () => {

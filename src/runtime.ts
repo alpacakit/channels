@@ -142,15 +142,13 @@ function resolveParameterCandidate(
 }
 
 export function decodeEntryInput<
-  const Name extends string,
-  const Parameters extends ParameterSet,
-  Projection,
+  const Entry extends EntryDefinition<string, ParameterSet, unknown>,
 >(input: {
-  readonly entry: EntryDefinition<Name, Parameters, Projection>;
+  readonly entry: Entry;
   readonly parameterNames: readonly string[];
   readonly raw: RawValueMap;
   readonly coerce?: RawValueCoercer;
-}): EntryDecodeResult<Parameters, Projection> {
+}): EntryDecodeResult<Entry["parameters"], ReturnType<Entry["project"]>> {
   const decoded = decodeParameterValues({
     parameters: input.entry.parameters,
     parameterNames: input.parameterNames,
@@ -164,7 +162,9 @@ export function decodeEntryInput<
     return {
       kind: ENTRY_DECODE_RESULT_KIND.resolved,
       values: decoded.values,
-      projection: input.entry.project({ values: decoded.values }),
+      projection: input.entry.project({
+        values: decoded.values,
+      }) as ReturnType<Entry["project"]>,
     };
   } catch (error) {
     return error instanceof EntryInputError

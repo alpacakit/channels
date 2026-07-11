@@ -7,24 +7,18 @@ import {
   type ParameterBindingIssue,
 } from "./binding-compiler.js";
 import { requireEntryOutput } from "./contract.js";
-import { requireParameter } from "./internal.js";
 import type {
-  EntryDefinition,
   EntryDefinitionWithOutput,
   EntryTreeEndpoint,
   ParameterSet,
-  ParameterValues,
   RawValueMap,
   TypedEntryChannelBinding,
+  TypedEntryTreeEndpoint,
 } from "./model.js";
-import { decodeParameterValues } from "./runtime.js";
+import { decodeEntryInput, type EntryDecodeResult } from "./runtime.js";
 import { EntryTreeDefinitionError, findChannelBinding } from "./schema.js";
 import { createEntryChannelBinding } from "./tree-internal.js";
-import {
-  CHANNEL,
-  ENTRY_DECODE_RESULT_KIND,
-  PARAMETER_PRESENCE,
-} from "./values.js";
+import { CHANNEL, PARAMETER_PRESENCE } from "./values.js";
 
 const ZOD_SCHEMA_TYPE = {
   object: "object",
@@ -64,26 +58,10 @@ export function bindMcpEntry<
   return createEntryChannelBinding(CHANNEL.mcp, binding);
 }
 
-export function createMcpInputSchema<
-  const Name extends string,
-  const Parameters extends ParameterSet,
-  Projection,
->(input: {
-  readonly entry: EntryDefinition<Name, Parameters, Projection>;
-  readonly binding: McpBinding<Parameters>;
-}): Record<string, z.ZodType>;
 export function createMcpInputSchema(input: {
   readonly endpoint: EntryTreeEndpoint;
-}): Record<string, z.ZodType>;
-export function createMcpInputSchema(
-  input:
-    | {
-        readonly entry: EntryDefinition<string, ParameterSet, unknown>;
-        readonly binding: McpBinding;
-      }
-    | { readonly endpoint: EntryTreeEndpoint },
-): Record<string, z.ZodType> {
-  const bindings = resolveMcpBindings(input);
+}): Record<string, z.ZodType> {
+  const bindings = resolveMcpBindings(input.endpoint);
   const shape: Record<string, z.ZodType> = {};
   for (const binding of bindings) {
     const { parameter } = binding;
@@ -99,40 +77,29 @@ export function createMcpInputSchema(
 }
 
 function resolveMcpBindings(
-  input:
-    | {
-        readonly entry: EntryDefinition<string, ParameterSet, unknown>;
-        readonly binding: McpBinding;
-      }
-    | { readonly endpoint: EntryTreeEndpoint },
+  endpoint: EntryTreeEndpoint,
 ): readonly CompiledParameterBinding<McpParameterBinding>[] {
-  if ("entry" in input) {
-    return input.binding.parameters.map((row) => ({
-      row,
-      parameter: requireParameter(input.entry.parameters, row.parameterName),
-    }));
-  }
-  const channelBindings = input.endpoint.channels.filter(
+  const channelBindings = endpoint.channels.filter(
     (candidate) => candidate.channel === CHANNEL.mcp,
   );
-  const channelBinding = findChannelBinding(input.endpoint, CHANNEL.mcp);
+  const channelBinding = findChannelBinding(endpoint, CHANNEL.mcp);
   if (
     channelBindings.length !== 1 ||
     !channelBinding ||
     !isMcpBinding(channelBinding.binding)
   ) {
     throw new EntryTreeDefinitionError([
-      `${input.endpoint.entry.name}: endpoint must have exactly one valid MCP binding`,
+      `${endpoint.entry.name}: endpoint must have exactly one valid MCP binding`,
     ]);
   }
   const compilation = compileParameterBindings(
-    input.endpoint.entry,
+    endpoint.entry,
     channelBinding.binding.parameters,
   );
   if (compilation.issues.length > 0) {
     throw new EntryTreeDefinitionError(
       compilation.issues.map((issue) =>
-        formatMcpParameterBindingIssue(input.endpoint.entry.name, issue),
+        formatMcpParameterBindingIssue(endpoint.entry.name, issue),
       ),
     );
   }
@@ -172,19 +139,17 @@ function isMcpBinding(value: unknown): value is McpBinding {
 }
 
 export function createMcpOutputSchema<Output extends JsonObject>(input: {
-  readonly entry: EntryDefinitionWithOutput<
-    string,
-    ParameterSet,
-    unknown,
-    Output
+  readonly endpoint: TypedEntryTreeEndpoint<
+    EntryDefinitionWithOutput<string, ParameterSet, unknown, Output>
   >;
 }): z.ZodType<Output> {
-  const schema = requireEntryOutput(input.entry).schema;
+  resolveMcpBindings(input.endpoint);
+  const schema = requireEntryOutput(input.endpoint.entry).schema;
   const normalized =
     schema.type === ZOD_SCHEMA_TYPE.readonly ? unwrapZodSchema(schema) : schema;
   if (normalized.type !== ZOD_SCHEMA_TYPE.object) {
     throw new Error(
-      `Entry ${input.entry.name} output contract must use a Zod object schema`,
+      `Entry ${input.endpoint.entry.name} output contract must use a Zod object schema`,
     );
   }
   return normalized;
@@ -197,24 +162,19 @@ function unwrapZodSchema<Output>(schema: z.ZodType<Output>): z.ZodType<Output> {
   return wrapper.unwrap();
 }
 
-export function parseMcpValues<
-  const Name extends string,
-  const Parameters extends ParameterSet,
-  Projection,
+export type McpEntryParseResult<Entry extends EntryTreeEndpoint["entry"]> =
+  EntryDecodeResult<Entry["parameters"], ReturnType<Entry["project"]>>;
+
+export function parseMcpEntry<
+  const Entry extends EntryTreeEndpoint["entry"],
 >(input: {
-  readonly entry: EntryDefinition<Name, Parameters, Projection>;
-  readonly binding: McpBinding<Parameters>;
+  readonly endpoint: TypedEntryTreeEndpoint<Entry>;
   readonly raw: RawValueMap;
-}): ParameterValues<Parameters> {
-  const decoded = decodeParameterValues({
-    parameters: input.entry.parameters,
-    parameterNames: input.binding.parameters.map((row) => row.parameterName),
+}): McpEntryParseResult<Entry> {
+  const bindings = resolveMcpBindings(input.endpoint);
+  return decodeEntryInput({
+    entry: input.endpoint.entry,
+    parameterNames: bindings.map((binding) => binding.parameter.name),
     raw: input.raw,
   });
-  if (decoded.kind === ENTRY_DECODE_RESULT_KIND.invalidInput) {
-    throw new Error(
-      `Invalid MCP argument ${decoded.parameterName ?? "input"}: ${decoded.issues.join("; ")}`,
-    );
-  }
-  return decoded.values;
 }

@@ -1,3 +1,4 @@
+import type { JsonValue } from "@alpacaloop/core";
 import type {
   ChannelSegmentOverride,
   EntryDefinition,
@@ -87,6 +88,7 @@ export interface CliHelpOption {
   readonly booleanMode: CliBooleanMode | null;
   readonly negated: boolean;
   readonly repeatMode: CliRepeatMode | null;
+  readonly defaultValue: JsonValue | undefined;
 }
 
 export interface CliHelpPositional {
@@ -95,6 +97,7 @@ export interface CliHelpPositional {
   readonly description: string;
   readonly required: boolean;
   readonly variadic: boolean;
+  readonly defaultValue: JsonValue | undefined;
 }
 
 export interface CliHelpSurface {
@@ -137,6 +140,30 @@ export type CliRouterResult =
       readonly path: readonly string[];
       readonly error: unknown;
     };
+
+export type CliResolvedEndpointResult<Endpoint extends EntryTreeEndpoint> =
+  Omit<
+    Extract<
+      CliRouterResult,
+      { readonly kind: typeof CLI_ROUTER_RESULT_KIND.resolved }
+    >,
+    "endpoint" | "entry" | "values" | "projection"
+  > & {
+    readonly endpoint: Endpoint;
+    readonly entry: Endpoint["entry"];
+    readonly values: ParameterValues<Endpoint["entry"]["parameters"]>;
+    readonly projection: ReturnType<Endpoint["entry"]["project"]>;
+  };
+
+export function isCliResolvedEndpoint<const Endpoint extends EntryTreeEndpoint>(
+  result: CliRouterResult,
+  endpoint: Endpoint,
+): result is CliResolvedEndpointResult<Endpoint> {
+  return (
+    result.kind === CLI_ROUTER_RESULT_KIND.resolved &&
+    result.endpoint === endpoint
+  );
+}
 
 export interface CliRouter {
   readonly help: CliHelpSurface;
