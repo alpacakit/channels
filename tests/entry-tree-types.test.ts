@@ -14,7 +14,6 @@ import {
   defineEntryNode,
   defineEntryTree,
   defineParameter,
-  ENTRY_DECODE_RESULT_KIND,
   type EntryTreeDefinition,
   type EntryTreeEndpoint,
   type EntryTreeNode,
@@ -23,7 +22,12 @@ import {
   VALUE_SHAPE_KIND,
   type ValueShape,
 } from "../src/index.js";
-import { bindMcpEntry, type McpBinding, parseMcpEntry } from "../src/mcp.js";
+import {
+  bindMcpEntry,
+  createMcpEndpoint,
+  isMcpResolved,
+  type McpBinding,
+} from "../src/mcp.js";
 
 describe("entry tree builder types", () => {
   it("keeps parameter-name safety in builders and erases stored endpoint types", () => {
@@ -81,8 +85,8 @@ describe("entry tree builder types", () => {
       const projection: string = result.projection;
       expectTypeOf(projection).toEqualTypeOf<string>();
     }
-    const mcpResult = parseMcpEntry({ endpoint, raw: { query: "value" } });
-    if (mcpResult.kind === ENTRY_DECODE_RESULT_KIND.resolved) {
+    const mcpResult = createMcpEndpoint(endpoint).parse({ query: "value" });
+    if (isMcpResolved(mcpResult)) {
       const projection: string = mcpResult.projection;
       expectTypeOf(projection).toEqualTypeOf<string>();
     }

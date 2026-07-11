@@ -489,17 +489,20 @@ function isCliArgBinding(value: unknown): value is CliArgBinding {
   }
   if (value.kind === CLI_ARG_KIND.option) {
     return (
-      "flags" in value &&
-      Array.isArray(value.flags) &&
-      value.flags.every((flag) => typeof flag === "string")
+      !("flags" in value) ||
+      value.flags === undefined ||
+      (Array.isArray(value.flags) &&
+        value.flags.every((flag) => typeof flag === "string"))
     );
   }
   return (
     value.kind === CLI_ARG_KIND.positional &&
-    "valueName" in value &&
-    typeof value.valueName === "string" &&
-    "variadic" in value &&
-    typeof value.variadic === "boolean"
+    (!("valueName" in value) ||
+      value.valueName === undefined ||
+      typeof value.valueName === "string") &&
+    (!("variadic" in value) ||
+      value.variadic === undefined ||
+      typeof value.variadic === "boolean")
   );
 }
 

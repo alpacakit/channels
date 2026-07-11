@@ -174,20 +174,19 @@ import { bindCliEntry } from "@alpacaloop/channels/cli";
 
 const HintCliBinding = bindCliEntry({
   parameters: [
-    {
-      kind: "positional",
-      parameterName: "query",
-      valueName: "QUERY",
-      variadic: false,
-    },
-    {
-      kind: "option",
-      parameterName: "limit",
-      flags: ["--limit", "-n"],
-    },
+    { kind: "positional", parameterName: "query" },
+    { kind: "option", parameterName: "limit", flags: ["--limit", "-n"] },
   ],
 });
 ```
+
+A binding row only needs `kind` and `parameterName`. The rest is derived from
+the parameter name and only stated when you want to override it:
+
+- `query` needs no `valueName` (help shows `QUERY`) and no `variadic` (defaults
+  to `false`).
+- `limit` would default to the single flag `--limit`; here `flags` is given
+  only to add the `-n` alias.
 
 The mapping is:
 
@@ -380,39 +379,48 @@ const help = router.help;
 
 ## 6. Execute the same Endpoint from MCP
 
-Generate the tool's input schema from the Endpoint:
+Compile the Endpoint once, then reuse the handle for both registration and
+per-invocation decoding:
 
 ```ts
 import {
-  createMcpInputSchema,
-  parseMcpEntry,
+  createMcpEndpoint,
+  isMcpResolved,
 } from "@alpacaloop/channels/mcp";
 
-const inputSchema = createMcpInputSchema({
-  endpoint: HintEndpoint,
-});
+const HintMcpEndpoint = createMcpEndpoint(HintEndpoint);
+```
+
+`createMcpEndpoint()` validates the MCP binding once and returns a handle:
+
+```text
+HintMcpEndpoint
+│
+├── inputSchema   <- raw Zod object shape for tool registration
+│
+└── parse(raw)    <- decode + project one invocation
 ```
 
 `inputSchema` is a raw Zod object shape suitable for MCP tool registration. It
 contains descriptions, validation, and requiredness derived from `HintEntry`.
 
-Decode and project an MCP invocation through the same Endpoint:
+Decode and project an MCP invocation through the same handle:
 
 ```ts
-import { ENTRY_DECODE_RESULT_KIND } from "@alpacaloop/channels";
-
-const result = parseMcpEntry({
-  endpoint: HintEndpoint,
-  raw: {
-    query: "entry tree",
-    limit: 5,
-  },
+const result = HintMcpEndpoint.parse({
+  query: "entry tree",
+  limit: 5,
 });
 
-if (result.kind === ENTRY_DECODE_RESULT_KIND.resolved) {
+if (isMcpResolved(result)) {
   console.log(result.projection);
 }
 ```
+
+Create the handle once (typically at startup) and reuse it for every request.
+The binding is compiled a single time, so `parse()` does no per-invocation
+recompilation, and an invalid binding throws `EntryTreeDefinitionError`
+eagerly — exactly like `createCliRouter()`.
 
 The MCP runtime path is:
 
@@ -512,8 +520,7 @@ src/
 │   └── createCliRouter(CommandTree)
 │
 └── mcp.ts
-    ├── createMcpInputSchema(HintEndpoint)
-    └── parseMcpEntry(HintEndpoint)
+    └── createMcpEndpoint(HintEndpoint)
 ```
 
 ## Package entries
@@ -524,7 +531,7 @@ The neutral model and channel adapters are intentionally separate imports:
 | --- | --- |
 | `@alpacaloop/channels` | Parameters, codecs, entries, output contracts, and entry-tree builders |
 | `@alpacaloop/channels/cli` | CLI bindings, segment overrides, router, typed result guard, and help surface |
-| `@alpacaloop/channels/mcp` | MCP binding, input/output schema projection, decoding, and entry projection |
+| `@alpacaloop/channels/mcp` | MCP binding, the compiled endpoint handle, output schema projection, and the resolved-result guard |
 
 `zod` is a peer dependency. In this workspace, depend on the package with
 `workspace:*` and use the workspace Zod version.
@@ -569,6 +576,10 @@ defineEntryNode({
 
 CLI binding and routing rules:
 
+- An option with no `flags` defaults to a single `--<kebab-case parameter
+  name>` long flag. Provide `flags` only to add aliases or a short flag.
+- A positional's `valueName` defaults to the upper snake-cased parameter name,
+  and `variadic` defaults to `false`. State either only to override it.
 - Options use reachable `-x` or `--long` flags. Requiredness comes from the
   Entry parameter, not the Binding.
 - A defaulted boolean option is a flag by default. `negated: true` adds its
@@ -602,29 +613,35 @@ consumer responsibilities.
 
 ## MCP reference
 
-Schema generation and runtime parsing both start from the Endpoint. Do not keep
-a second runtime copy of the MCP Binding.
+`createMcpEndpoint()` compiles the Endpoint once and returns the handle used for
+both schema generation and runtime parsing. Do not keep a second runtime copy of
+the MCP Binding.
 
 ```ts
 declare const toolArguments: Record<string, unknown>;
 
-const inputShape = createMcpInputSchema({ endpoint: HintEndpoint });
-const result = parseMcpEntry({ endpoint: HintEndpoint, raw: toolArguments });
+const mcpEndpoint = createMcpEndpoint(HintEndpoint);
+const inputShape = mcpEndpoint.inputSchema;
+const result = mcpEndpoint.parse(toolArguments);
 ```
 
-`createMcpInputSchema()` returns a raw Zod object shape. It includes only
-MCP-bound parameters and projects their schemas, descriptions, and requiredness.
+`inputSchema` is a raw Zod object shape. It includes only MCP-bound parameters
+and projects their schemas, descriptions, and requiredness.
 
-`parseMcpEntry()` applies Entry defaults to all parameters, validates bound
-input, and runs the Entry projection. It returns:
+`parse()` applies Entry defaults to all parameters, validates bound input, and
+runs the Entry projection. It returns:
 
 - `resolved` with the typed projection
 - `invalid_input` for missing input, codec failures, or an `EntryInputError`
   deliberately thrown by `project()`
 - `internal_error` with the original error for an unexpected `project()` throw
 
-Invalid Endpoint bindings throw `EntryTreeDefinitionError` when the MCP schema
-or parser resolves the Binding.
+`isMcpResolved(result)` narrows a parse result to its `resolved` variant, the
+MCP counterpart of `isCliResolvedEndpoint()`.
+
+An invalid Endpoint binding throws `EntryTreeDefinitionError` from
+`createMcpEndpoint()` itself, so definition errors surface at construction rather
+than on the first invocation.
 
 MCP tool naming and registration stay with the consumer. Hierarchical MCP tool
 names are not currently derived from the Tree.
@@ -666,9 +683,7 @@ const EndpointWithOutput = defineEntryEndpoint(
   bindMcpEntry(),
 );
 
-const outputSchema = createMcpOutputSchema({
-  endpoint: EndpointWithOutput,
-});
+const outputSchema = createMcpOutputSchema(EndpointWithOutput);
 
 const verified = verifyEntryOutput(EntryWithOutput, {
   hints: ["A validated result"],
@@ -699,6 +714,5 @@ The package currently provides the neutral entry tree, CLI router, and MCP
 endpoint adapter. It does not provide an HTTP router, process exit policy, CLI
 error wording, MCP tool registration, authentication, or a network listener.
 
-The older `CliOptionDescriptor` helpers remain available for consumers that
-have not moved every command to the Entry Tree. New command surfaces should use
-`defineEntryEndpoint()` with `bindCliEntry()` instead.
+Every command surface uses `defineEntryEndpoint()` with `bindCliEntry()` and
+`bindMcpEntry()`. There is no separate legacy option-descriptor API.
