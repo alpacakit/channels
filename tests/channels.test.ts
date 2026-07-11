@@ -4,26 +4,22 @@ import {
   createOutputContract,
   codecs,
   defineEntry,
+  defineEntryEndpoint,
   defineParameter,
   type EntryDefinitionWithOutput,
+  EntryInputError,
   EntryOutputContractError,
+  ENTRY_DECODE_RESULT_KIND,
   optional,
-  projectEntry,
   requireEntryOutput,
   verifyEntryOutput,
 } from "../src/index.js";
 import {
-  CLI_BOOLEAN_MODE,
-  CLI_VALUE_KIND,
-  createCliOptions,
-  defineCliBinding,
-  parseCliValues,
-} from "../src/cli.js";
-import {
+  bindMcpEntry,
   createMcpInputSchema,
   createMcpOutputSchema,
   defineMcpBinding,
-  parseMcpValues,
+  parseMcpEntry,
 } from "../src/mcp.js";
 
 const TestIntentValues = ["add-field", "cli-change"] as const;
@@ -71,31 +67,6 @@ const TestEntry = defineEntry({
   project: ({ values }) => values,
 });
 
-const TestCliBinding = defineCliBinding({
-  parameters: [
-    {
-      parameterName: "symbol",
-      flags: ["--symbol"],
-    },
-    {
-      parameterName: "intent",
-      flags: ["--intent"],
-    },
-    {
-      parameterName: "exported",
-      flags: ["--exported"],
-    },
-    {
-      parameterName: "depth",
-      flags: ["--depth"],
-    },
-    {
-      parameterName: "verbose",
-      flags: ["--verbose"],
-    },
-  ],
-});
-
 const TestMcpBinding = defineMcpBinding({
   parameters: [
     { parameterName: "symbol" },
@@ -103,6 +74,11 @@ const TestMcpBinding = defineMcpBinding({
     { parameterName: "depth" },
   ],
 });
+
+const TestEndpoint = defineEntryEndpoint(
+  TestEntry,
+  bindMcpEntry(TestMcpBinding),
+);
 
 const TestOutputSchema = z
   .object({
@@ -120,6 +96,11 @@ const TestOutputEntry = defineEntry({
   project: () => null,
   output: createOutputContract(TestOutputSchema),
 });
+
+const TestOutputEndpoint = defineEntryEndpoint(
+  TestOutputEntry,
+  bindMcpEntry(defineMcpBinding({ parameters: [] })),
+);
 
 const OutputlessEntry = defineEntry<
   "outputless",
@@ -150,105 +131,14 @@ const NonObjectSchemaEntry = defineEntry({
   ),
 });
 
-describe("@alpacaloop/channels CLI binding", () => {
-  it("generates CLI metadata and normalizes raw CLI values", () => {
-    expect(
-      createCliOptions({ entry: TestEntry, binding: TestCliBinding }),
-    ).toEqual([
-      expect.objectContaining({
-        name: "symbol",
-        flags: ["--symbol"],
-        kind: CLI_VALUE_KIND.string,
-        multiple: true,
-        defaultValue: null,
-        valueName: "symbol",
-      }),
-      expect.objectContaining({
-        name: "intent",
-        choices: ["add-field", "cli-change"],
-        kind: CLI_VALUE_KIND.stringEnum,
-        multiple: true,
-      }),
-      expect.objectContaining({
-        name: "exported",
-        choices: [],
-        kind: CLI_VALUE_KIND.boolean,
-        booleanMode: CLI_BOOLEAN_MODE.value,
-        multiple: false,
-        defaultValue: null,
-        valueName: "exported",
-      }),
-      expect.objectContaining({
-        name: "depth",
-        defaultValue: 2,
-        kind: CLI_VALUE_KIND.positiveInteger,
-        valueName: "depth",
-      }),
-      expect.objectContaining({
-        name: "verbose",
-        kind: CLI_VALUE_KIND.boolean,
-        booleanMode: CLI_BOOLEAN_MODE.flag,
-        defaultValue: false,
-        multiple: false,
-        valueName: null,
-      }),
-    ]);
-
-    const values = parseCliValues({
-      entry: TestEntry,
-      binding: TestCliBinding,
-      raw: {
-        symbol: ["AdapterContext"],
-        intent: ["add-field"],
-        exported: "false",
-      },
-    });
-
-    expect(projectEntry(TestEntry, values)).toEqual({
-      symbol: ["AdapterContext"],
-      intent: ["add-field"],
-      exported: false,
-      depth: 2,
-      verbose: false,
-    });
-  });
-
-  it("validates default values and preserves legacy numeric coercion", () => {
-    const invalidDefaultEntry = defineEntry({
-      name: "invalid-default",
-      parameters: [
-        defineParameter({
-          name: "count",
-          codec: codecs.positiveInteger(),
-          requirement: optional({ default: 0 }),
-          description: "Count",
-        }),
-      ],
-      project: ({ values }) => values,
-    });
-    const binding = defineCliBinding({
-      parameters: [{ parameterName: "count", flags: ["--count"] }],
-    });
-
-    expect(() =>
-      parseCliValues({ entry: invalidDefaultEntry, binding, raw: {} }),
-    ).toThrow("Invalid CLI option count");
-    expect(() =>
-      parseCliValues({
-        entry: invalidDefaultEntry,
-        binding,
-        raw: { count: "2" },
-      }),
-    ).toThrow("Invalid CLI option count");
-  });
-});
+const NonObjectSchemaEndpoint = defineEntryEndpoint(
+  NonObjectSchemaEntry,
+  bindMcpEntry(defineMcpBinding({ parameters: [] })),
+);
 
 describe("@alpacaloop/channels MCP binding", () => {
   it("generates an exposed-parameter input schema and normalizes arguments", () => {
-    const schema = createMcpInputSchema({
-      entry: TestEntry,
-      binding: TestMcpBinding,
-    });
+    const schema = createMcpInputSchema({ endpoint: TestEndpoint });
 
     expect(Object.keys(schema).sort()).toEqual(["depth", "intent", "symbol"]);
     expect(Object.hasOwn(schema, "internalOnly")).toBe(false);
@@ -275,15 +165,15 @@ describe("@alpacaloop/channels MCP binding", () => {
     });
     expect(z.object(schema).safeParse({ depth: 6 }).success).toBe(false);
 
-    const values = parseMcpValues({
-      entry: TestEntry,
-      binding: TestMcpBinding,
+    const result = parseMcpEntry({
+      endpoint: TestEndpoint,
       raw: { symbol: ["AdapterContext"] },
     });
 
-    expect(values).toEqual({
-      symbol: ["AdapterContext"],
-      depth: 2,
+    expect(result).toEqual({
+      kind: ENTRY_DECODE_RESULT_KIND.resolved,
+      values: { symbol: ["AdapterContext"], depth: 2 },
+      projection: { symbol: ["AdapterContext"], depth: 2 },
     });
   });
 
@@ -300,13 +190,50 @@ describe("@alpacaloop/channels MCP binding", () => {
       ],
       project: ({ values }) => values,
     });
-    const binding = defineMcpBinding({
-      parameters: [{ parameterName: "count" }],
-    });
-
-    expect(() => parseMcpValues({ entry, binding, raw: {} })).toThrow(
-      "Invalid MCP argument count",
+    const endpoint = defineEntryEndpoint(
+      entry,
+      bindMcpEntry(
+        defineMcpBinding({ parameters: [{ parameterName: "count" }] }),
+      ),
     );
+
+    expect(parseMcpEntry({ endpoint, raw: {} })).toMatchObject({
+      kind: ENTRY_DECODE_RESULT_KIND.invalidInput,
+      parameterName: "count",
+    });
+  });
+
+  it("separates explicit input errors from unexpected projection failures", () => {
+    const endpointFor = (project: () => unknown) =>
+      defineEntryEndpoint(
+        defineEntry({ name: "error", parameters: [], project }),
+        bindMcpEntry(defineMcpBinding({ parameters: [] })),
+      );
+    const internalError = new Error("domain bug");
+
+    expect(
+      parseMcpEntry({
+        endpoint: endpointFor(() => {
+          throw new EntryInputError(["not allowed"]);
+        }),
+        raw: {},
+      }),
+    ).toMatchObject({
+      kind: ENTRY_DECODE_RESULT_KIND.invalidInput,
+      issues: ["not allowed"],
+    });
+    const internalResult = parseMcpEntry({
+      endpoint: endpointFor(() => {
+        throw internalError;
+      }),
+      raw: {},
+    });
+    expect(internalResult).toMatchObject({
+      kind: ENTRY_DECODE_RESULT_KIND.internalError,
+    });
+    if (internalResult.kind === ENTRY_DECODE_RESULT_KIND.internalError) {
+      expect(internalResult.error).toBe(internalError);
+    }
   });
 });
 
@@ -353,8 +280,9 @@ describe("@alpacaloop/channels output contract", () => {
   });
 
   it("exposes a strict MCP output schema", () => {
-    const schema = createMcpOutputSchema({ entry: TestOutputEntry });
+    const schema = createMcpOutputSchema({ endpoint: TestOutputEndpoint });
 
+    expectTypeOf(schema).toEqualTypeOf<z.ZodType<TestOutput>>();
     expect(schema).toBe(TestOutputSchema.unwrap());
     expect(z.toJSONSchema(schema)).toMatchObject({
       type: "object",
@@ -371,7 +299,7 @@ describe("@alpacaloop/channels output contract", () => {
 
   it("rejects an MCP output contract whose top-level schema is not an object", () => {
     expect(() =>
-      createMcpOutputSchema({ entry: NonObjectSchemaEntry }),
+      createMcpOutputSchema({ endpoint: NonObjectSchemaEndpoint }),
     ).toThrow(
       "Entry non-object-schema output contract must use a Zod object schema",
     );

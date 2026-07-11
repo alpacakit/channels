@@ -390,6 +390,7 @@ export function createCliHelpSurface(input: {
         positional.parameter.requirement.presence ===
         PARAMETER_PRESENCE.required,
       variadic: positional.kind === CLI_POSITIONAL_PLAN_KIND.rest,
+      defaultValue: positional.parameter.requirement.defaultValue,
     })),
     children: input.childHelp,
   };
@@ -406,6 +407,7 @@ function cliHelpOptionFor(option: CompiledCliOption): CliHelpOption {
     booleanMode: booleanFlag ? CLI_BOOLEAN_MODE.flag : option.booleanMode,
     negated: booleanFlag && option.negativeFlags.length > 0,
     repeatMode: cliHelpRepeatMode(option),
+    defaultValue: option.parameter.requirement.defaultValue,
   };
 }
 

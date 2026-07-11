@@ -1,5 +1,10 @@
 import { describe, expectTypeOf, it } from "vitest";
-import { bindCliEntry, overrideCliSegment } from "../src/cli.js";
+import {
+  bindCliEntry,
+  createCliRouter,
+  isCliResolvedEndpoint,
+  overrideCliSegment,
+} from "../src/cli.js";
 import {
   codecs,
   defineEntry,
@@ -7,12 +12,13 @@ import {
   defineEntryNode,
   defineEntryTree,
   defineParameter,
+  ENTRY_DECODE_RESULT_KIND,
   type EntryTreeDefinition,
   type EntryTreeEndpoint,
   type EntryTreeNode,
   required,
 } from "../src/index.js";
-import { bindMcpEntry, defineMcpBinding } from "../src/mcp.js";
+import { bindMcpEntry, defineMcpBinding, parseMcpEntry } from "../src/mcp.js";
 
 describe("entry tree builder types", () => {
   it("keeps parameter-name safety in builders and erases stored endpoint types", () => {
@@ -22,7 +28,7 @@ describe("entry tree builder types", () => {
         defineParameter({
           name: "query",
           codec: codecs.string(),
-          requirement: required(),
+          requirement: required<string>(),
           description: "Query",
         }),
       ],
@@ -53,7 +59,11 @@ describe("entry tree builder types", () => {
     expectTypeOf(explicitMcp.parameters[0]?.parameterName).toEqualTypeOf<
       "query" | undefined
     >();
-    expectTypeOf(endpoint).toEqualTypeOf<EntryTreeEndpoint>();
+    expectTypeOf(endpoint).toMatchTypeOf<EntryTreeEndpoint>();
+    expectTypeOf(endpoint.entry).toEqualTypeOf<typeof entry>();
+    expectTypeOf(tree.root.endpoints[0]).toEqualTypeOf<
+      EntryTreeEndpoint | undefined
+    >();
     expectTypeOf(tree).toEqualTypeOf<EntryTreeDefinition>();
     expectTypeOf({
       name: "raw",
@@ -62,6 +72,20 @@ describe("entry tree builder types", () => {
       endpoints: [],
       children: [],
     }).not.toMatchTypeOf<EntryTreeNode>();
+
+    const result = createCliRouter(tree).resolve(["--query", "value"]);
+    if (isCliResolvedEndpoint(result, endpoint)) {
+      expectTypeOf(result.entry).toEqualTypeOf<typeof entry>();
+      const projection: string | undefined = result.projection;
+      const values: { readonly query?: string } = result.values;
+      expectTypeOf(projection).toEqualTypeOf<string | undefined>();
+      expectTypeOf(values).toEqualTypeOf<{ readonly query?: string }>();
+    }
+    const mcpResult = parseMcpEntry({ endpoint, raw: { query: "value" } });
+    if (mcpResult.kind === ENTRY_DECODE_RESULT_KIND.resolved) {
+      const projection: string | undefined = mcpResult.projection;
+      expectTypeOf(projection).toEqualTypeOf<string | undefined>();
+    }
 
     const invalidCli = bindCliEntry({
       parameters: [

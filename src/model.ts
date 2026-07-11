@@ -108,6 +108,11 @@ export interface EntryTreeEndpoint {
   readonly [EntryTreeEndpointBrand]: true;
 }
 
+export type TypedEntryTreeEndpoint<Entry extends EntryTreeEndpoint["entry"]> =
+  Omit<EntryTreeEndpoint, "entry"> & {
+    readonly entry: Entry;
+  };
+
 export interface ChannelSegmentOverride {
   readonly channel: Channel;
   readonly segment: unknown;
