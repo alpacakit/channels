@@ -17,7 +17,7 @@ import {
   type ParameterSet,
   required,
 } from "../src/index.js";
-import { bindMcpEntry, createMcpInputSchema } from "../src/mcp.js";
+import { bindMcpEntry, createMcpEndpoint } from "../src/mcp.js";
 
 const RequiredEntry = defineEntry({
   name: "required",
@@ -388,9 +388,7 @@ describe("Phase-A entry tree definition validation", () => {
       RequiredEntry,
       bindMcpEntry("value", "value"),
     );
-    expect(() => createMcpInputSchema({ endpoint: duplicate })).toThrow(
-      "duplicate MCP binding",
-    );
+    expect(() => createMcpEndpoint(duplicate)).toThrow("duplicate MCP binding");
 
     const erasedEntry = RequiredEntry as unknown as EntryDefinition<
       string,
@@ -401,12 +399,12 @@ describe("Phase-A entry tree definition validation", () => {
       erasedEntry,
       bindMcpEntry("missing"),
     );
-    expect(() => createMcpInputSchema({ endpoint: nonexistent })).toThrow(
+    expect(() => createMcpEndpoint(nonexistent)).toThrow(
       "nonexistent parameter",
     );
 
     const unreachable = defineEntryEndpoint(RequiredEntry, bindMcpEntry());
-    expect(() => createMcpInputSchema({ endpoint: unreachable })).toThrow(
+    expect(() => createMcpEndpoint(unreachable)).toThrow(
       "required parameter value is unreachable from MCP",
     );
   });

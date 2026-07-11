@@ -153,10 +153,11 @@ function compileCliOption(
   issues: string[],
 ): CompiledCliOption {
   const { row, parameter } = compiled;
-  if (row.flags.length === 0) {
+  const flags = row.flags ?? [defaultCliOptionFlag(parameter.name)];
+  if (flags.length === 0) {
     issues.push(`${location}: option ${row.parameterName} must declare a flag`);
   }
-  for (const flag of row.flags) {
+  for (const flag of flags) {
     if (!isReachableCliOptionFlag(flag)) {
       issues.push(
         `${location}: option ${row.parameterName} declares unreachable CLI flag ${JSON.stringify(flag)}`,
@@ -165,13 +166,13 @@ function compileCliOption(
   }
   switch (parameter.codec.shape.kind) {
     case VALUE_SHAPE_KIND.boolean:
-      return compileCliBooleanOption(compiled, location, issues);
+      return compileCliBooleanOption(compiled, flags, location, issues);
     case VALUE_SHAPE_KIND.array:
       rejectBooleanChoices(row, location, issues);
       return {
         kind: CLI_OPTION_PLAN_KIND.value,
         parameter,
-        flags: row.flags,
+        flags,
         valueMode:
           row.repeatMode === CLI_REPEAT_MODE.commaOrRepeat
             ? CLI_OPTION_VALUE_MODE.commaOrRepeat
@@ -189,7 +190,7 @@ function compileCliOption(
       return {
         kind: CLI_OPTION_PLAN_KIND.value,
         parameter,
-        flags: row.flags,
+        flags,
         valueMode: CLI_OPTION_VALUE_MODE.replace,
       };
   }
@@ -206,10 +207,25 @@ function isReachableCliOptionFlag(flag: string): boolean {
   );
 }
 
+function toKebabCase(name: string): string {
+  return name
+    .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+    .replace(/^-/, "");
+}
+
+function defaultCliOptionFlag(parameterName: string): string {
+  return `--${toKebabCase(parameterName)}`;
+}
+
+function defaultCliPositionalValueName(parameterName: string): string {
+  return toKebabCase(parameterName).replace(/-/g, "_").toUpperCase();
+}
+
 function compileCliBooleanOption(
   compiled: CompiledParameterBinding<
     Extract<CliArgBinding, { readonly kind: "option" }>
   >,
+  flags: readonly string[],
   location: string,
   issues: string[],
 ): CompiledCliOption {
@@ -233,12 +249,12 @@ function compileCliBooleanOption(
     return {
       kind: CLI_OPTION_PLAN_KIND.value,
       parameter,
-      flags: row.flags,
+      flags,
       valueMode: CLI_OPTION_VALUE_MODE.replace,
     };
   }
   const negativeFlags = row.negated
-    ? row.flags
+    ? flags
         .filter((flag) => flag.startsWith("--"))
         .map((flag) => `--no-${flag.slice(2)}`)
     : [];
@@ -250,7 +266,7 @@ function compileCliBooleanOption(
   return {
     kind: CLI_OPTION_PLAN_KIND.booleanFlag,
     parameter,
-    flags: row.flags,
+    flags,
     negativeFlags,
   };
 }
@@ -280,22 +296,25 @@ function compileCliPositional(
   issues: string[],
 ): CompiledCliPositional {
   const { row, parameter } = compiled;
-  if (row.variadic && parameter.codec.shape.kind !== VALUE_SHAPE_KIND.array) {
+  const variadic = row.variadic ?? false;
+  const valueName =
+    row.valueName ?? defaultCliPositionalValueName(parameter.name);
+  if (variadic && parameter.codec.shape.kind !== VALUE_SHAPE_KIND.array) {
     issues.push(
       `${location}: variadic positional ${row.parameterName} requires an array codec`,
     );
   }
-  if (row.valueName.length === 0) {
+  if (valueName.length === 0) {
     issues.push(
       `${location}: positional ${row.parameterName} valueName must not be empty`,
     );
   }
   return {
-    kind: row.variadic
+    kind: variadic
       ? CLI_POSITIONAL_PLAN_KIND.rest
       : CLI_POSITIONAL_PLAN_KIND.single,
     parameter,
-    valueName: row.valueName,
+    valueName,
   };
 }
 

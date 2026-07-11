@@ -42,7 +42,8 @@ export type CliArgBinding<Name extends string = string> =
   | {
       readonly kind: typeof CLI_ARG_KIND.option;
       readonly parameterName: Name;
-      readonly flags: readonly CliOptionFlag[];
+      /** Defaults to `--<kebab-case parameter name>` when omitted. */
+      readonly flags?: readonly CliOptionFlag[];
       readonly booleanMode?: CliBooleanMode;
       readonly negated?: true;
       readonly repeatMode?: typeof CLI_REPEAT_MODE.commaOrRepeat;
@@ -50,8 +51,10 @@ export type CliArgBinding<Name extends string = string> =
   | {
       readonly kind: typeof CLI_ARG_KIND.positional;
       readonly parameterName: Name;
-      readonly valueName: string;
-      readonly variadic: boolean;
+      /** Defaults to the upper snake-cased parameter name when omitted. */
+      readonly valueName?: string;
+      /** Defaults to `false` when omitted. */
+      readonly variadic?: boolean;
     };
 
 export type CliEntryBinding<Name extends string = string> = {

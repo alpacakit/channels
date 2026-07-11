@@ -17,7 +17,11 @@ import type {
 import { decodeEntryInput, type EntryDecodeResult } from "./runtime.js";
 import { EntryTreeDefinitionError, findChannelBinding } from "./schema.js";
 import { createEntryChannelBinding } from "./tree-internal.js";
-import { CHANNEL, PARAMETER_PRESENCE } from "./values.js";
+import {
+  CHANNEL,
+  ENTRY_DECODE_RESULT_KIND,
+  PARAMETER_PRESENCE,
+} from "./values.js";
 
 const ZOD_SCHEMA_TYPE = {
   object: "object",
@@ -33,10 +37,53 @@ export function bindMcpEntry<const ParameterNames extends readonly string[]>(
   return createEntryChannelBinding(CHANNEL.mcp, parameterNames);
 }
 
-export function createMcpInputSchema(input: {
-  readonly endpoint: EntryTreeEndpoint;
-}): Record<string, z.ZodType> {
-  const bindings = resolveMcpBindings(input.endpoint);
+export type McpEntryParseResult<Entry extends EntryTreeEndpoint["entry"]> =
+  EntryDecodeResult<ReturnType<Entry["project"]>>;
+
+export type McpResolvedEntry<Entry extends EntryTreeEndpoint["entry"]> =
+  Extract<
+    McpEntryParseResult<Entry>,
+    { readonly kind: typeof ENTRY_DECODE_RESULT_KIND.resolved }
+  >;
+
+/**
+ * A compiled MCP endpoint. The binding is validated and compiled once by
+ * `createMcpEndpoint()`, so definition errors surface eagerly (like the CLI
+ * router) and `parse()` does no per-invocation recompilation.
+ */
+export interface McpEndpoint<Entry extends EntryTreeEndpoint["entry"]> {
+  /** Raw Zod object shape for MCP tool registration. */
+  readonly inputSchema: Record<string, z.ZodType>;
+  /** Decode and project one MCP invocation through the endpoint. */
+  parse(raw: RawValueMap): McpEntryParseResult<Entry>;
+}
+
+export function createMcpEndpoint<
+  const Entry extends EntryTreeEndpoint["entry"],
+>(endpoint: EntryTreeEndpoint<Entry>): McpEndpoint<Entry> {
+  const bindings = resolveMcpBindings(endpoint);
+  const parameterNames = bindings.map((binding) => binding.parameter.name);
+  const inputSchema = buildMcpInputSchema(bindings);
+  return {
+    inputSchema,
+    parse: (raw) =>
+      decodeEntryInput({
+        entry: endpoint.entry,
+        parameterNames,
+        raw,
+      }),
+  };
+}
+
+export function isMcpResolved<Entry extends EntryTreeEndpoint["entry"]>(
+  result: McpEntryParseResult<Entry>,
+): result is McpResolvedEntry<Entry> {
+  return result.kind === ENTRY_DECODE_RESULT_KIND.resolved;
+}
+
+function buildMcpInputSchema(
+  bindings: readonly CompiledParameterBinding[],
+): Record<string, z.ZodType> {
   const shape: Record<string, z.ZodType> = {};
   for (const binding of bindings) {
     const { parameter } = binding;
@@ -106,18 +153,18 @@ export function createMcpOutputSchema<
   const Parameters extends ParameterSet,
   Projection,
   Output extends JsonObject,
->(input: {
-  readonly endpoint: EntryTreeEndpoint<
+>(
+  endpoint: EntryTreeEndpoint<
     EntryDefinitionWithOutput<Name, Parameters, Projection, Output>
-  >;
-}): z.ZodType<Output> {
-  resolveMcpBindings(input.endpoint);
-  const schema = requireEntryOutput(input.endpoint.entry).schema;
+  >,
+): z.ZodType<Output> {
+  resolveMcpBindings(endpoint);
+  const schema = requireEntryOutput(endpoint.entry).schema;
   const normalized =
     schema.type === ZOD_SCHEMA_TYPE.readonly ? unwrapZodSchema(schema) : schema;
   if (normalized.type !== ZOD_SCHEMA_TYPE.object) {
     throw new Error(
-      `Entry ${input.endpoint.entry.name} output contract must use a Zod object schema`,
+      `Entry ${endpoint.entry.name} output contract must use a Zod object schema`,
     );
   }
   return normalized;
@@ -128,21 +175,4 @@ function unwrapZodSchema<Output>(schema: z.ZodType<Output>): z.ZodType<Output> {
     unwrap(): z.ZodType<Output>;
   };
   return wrapper.unwrap();
-}
-
-export type McpEntryParseResult<Entry extends EntryTreeEndpoint["entry"]> =
-  EntryDecodeResult<ReturnType<Entry["project"]>>;
-
-export function parseMcpEntry<
-  const Entry extends EntryTreeEndpoint["entry"],
->(input: {
-  readonly endpoint: EntryTreeEndpoint<Entry>;
-  readonly raw: RawValueMap;
-}): McpEntryParseResult<Entry> {
-  const bindings = resolveMcpBindings(input.endpoint);
-  return decodeEntryInput({
-    entry: input.endpoint.entry,
-    parameterNames: bindings.map((binding) => binding.parameter.name),
-    raw: input.raw,
-  });
 }

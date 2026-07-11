@@ -16,9 +16,8 @@ import {
 } from "../src/index.js";
 import {
   bindMcpEntry,
-  createMcpInputSchema,
+  createMcpEndpoint,
   createMcpOutputSchema,
-  parseMcpEntry,
 } from "../src/mcp.js";
 
 const TestIntentValues = ["add-field", "cli-change"] as const;
@@ -128,7 +127,8 @@ const NonObjectSchemaEndpoint = defineEntryEndpoint(
 
 describe("@alpacaloop/channels MCP binding", () => {
   it("generates an exposed-parameter input schema and normalizes arguments", () => {
-    const schema = createMcpInputSchema({ endpoint: TestEndpoint });
+    const mcpEndpoint = createMcpEndpoint(TestEndpoint);
+    const schema = mcpEndpoint.inputSchema;
 
     expect(Object.keys(schema).sort()).toEqual(["depth", "intent", "symbol"]);
     expect(Object.hasOwn(schema, "internalOnly")).toBe(false);
@@ -155,12 +155,9 @@ describe("@alpacaloop/channels MCP binding", () => {
     });
     expect(z.object(schema).safeParse({ depth: 6 }).success).toBe(false);
 
-    const result = parseMcpEntry({
-      endpoint: TestEndpoint,
-      raw: {
-        symbol: ["AdapterContext"],
-        internalOnly: "ignored channel input",
-      },
+    const result = mcpEndpoint.parse({
+      symbol: ["AdapterContext"],
+      internalOnly: "ignored channel input",
     });
 
     expect(result).toEqual({
@@ -188,7 +185,7 @@ describe("@alpacaloop/channels MCP binding", () => {
     });
     const endpoint = defineEntryEndpoint(entry, bindMcpEntry("count"));
 
-    expect(parseMcpEntry({ endpoint, raw: {} })).toMatchObject({
+    expect(createMcpEndpoint(endpoint).parse({})).toMatchObject({
       kind: ENTRY_DECODE_RESULT_KIND.invalidInput,
       parameterName: "count",
     });
@@ -203,22 +200,20 @@ describe("@alpacaloop/channels MCP binding", () => {
     const internalError = new Error("domain bug");
 
     expect(
-      parseMcpEntry({
-        endpoint: endpointFor(() => {
+      createMcpEndpoint(
+        endpointFor(() => {
           throw new EntryInputError(["not allowed"]);
         }),
-        raw: {},
-      }),
+      ).parse({}),
     ).toMatchObject({
       kind: ENTRY_DECODE_RESULT_KIND.invalidInput,
       issues: ["not allowed"],
     });
-    const internalResult = parseMcpEntry({
-      endpoint: endpointFor(() => {
+    const internalResult = createMcpEndpoint(
+      endpointFor(() => {
         throw internalError;
       }),
-      raw: {},
-    });
+    ).parse({});
     expect(internalResult).toMatchObject({
       kind: ENTRY_DECODE_RESULT_KIND.internalError,
     });
@@ -271,7 +266,7 @@ describe("@alpacaloop/channels output contract", () => {
   });
 
   it("exposes a strict MCP output schema", () => {
-    const schema = createMcpOutputSchema({ endpoint: TestOutputEndpoint });
+    const schema = createMcpOutputSchema(TestOutputEndpoint);
 
     expectTypeOf(schema).toEqualTypeOf<z.ZodType<TestOutput>>();
     expect(schema).toBe(TestOutputSchema.unwrap());
@@ -289,9 +284,7 @@ describe("@alpacaloop/channels output contract", () => {
   });
 
   it("rejects an MCP output contract whose top-level schema is not an object", () => {
-    expect(() =>
-      createMcpOutputSchema({ endpoint: NonObjectSchemaEndpoint }),
-    ).toThrow(
+    expect(() => createMcpOutputSchema(NonObjectSchemaEndpoint)).toThrow(
       "Entry non-object-schema output contract must use a Zod object schema",
     );
   });

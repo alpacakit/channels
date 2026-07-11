@@ -18,7 +18,7 @@ import {
   optional,
   required,
 } from "../src/index.js";
-import { bindMcpEntry, createMcpInputSchema } from "../src/mcp.js";
+import { bindMcpEntry, createMcpEndpoint } from "../src/mcp.js";
 
 const DefaultEntry = defineEntry({
   name: "default",
@@ -339,6 +339,61 @@ describe("CLI entry tree router", () => {
     });
   });
 
+  it("derives option flags and positional value names from parameter names", () => {
+    const entry = defineEntry({
+      name: "derive",
+      parameters: [
+        defineParameter({
+          name: "target",
+          codec: codecs.string(),
+          requirement: required(),
+          description: "Target",
+        }),
+        defineParameter({
+          name: "maxDepth",
+          codec: codecs.positiveInteger(),
+          requirement: optional({ default: 1 }),
+          description: "Max depth",
+        }),
+      ],
+      project: ({ values }) => values,
+    });
+    const router = createCliRouter(
+      defineEntryTree(
+        defineEntryNode({
+          name: "derive",
+          description: "Derive",
+          endpoints: [
+            defineEntryEndpoint(
+              entry,
+              bindCliEntry({
+                parameters: [
+                  { kind: "positional", parameterName: "target" },
+                  { kind: "option", parameterName: "maxDepth" },
+                ],
+              }),
+            ),
+          ],
+        }),
+      ),
+    );
+
+    expect(router.help.positionals[0]).toMatchObject({
+      parameterName: "target",
+      valueName: "TARGET",
+      variadic: false,
+    });
+    const maxDepthOption = router.help.options.find(
+      (option) => option.parameterName === "maxDepth",
+    );
+    expect(maxDepthOption?.flags).toEqual(["--max-depth"]);
+
+    expect(router.resolve(["value", "--max-depth", "3"])).toMatchObject({
+      kind: CLI_ROUTER_RESULT_KIND.resolved,
+      projection: { target: "value", maxDepth: 3 },
+    });
+  });
+
   it("projects option and positional defaults into the help surface", () => {
     const entry = defineEntry({
       name: "defaults",
@@ -527,7 +582,7 @@ describe("one endpoint definition drives CLI and MCP", () => {
     if (!endpoint) {
       return;
     }
-    const shape = createMcpInputSchema({ endpoint });
+    const shape = createMcpEndpoint(endpoint).inputSchema;
     expect(Object.keys(shape).sort()).toEqual(["query", "tag", "verbose"]);
     expect(z.object(shape).safeParse({ query: "AdapterContext" }).success).toBe(
       true,
