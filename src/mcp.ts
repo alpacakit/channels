@@ -1,5 +1,11 @@
 import type { JsonObject } from "@alpacaloop/core";
 import type { z } from "zod";
+import {
+  type CompiledParameterBinding,
+  compileParameterBindings,
+  PARAMETER_BINDING_ISSUE_KIND,
+  type ParameterBindingIssue,
+} from "./binding-compiler.js";
 import { requireEntryOutput } from "./contract.js";
 import { requireParameter } from "./internal.js";
 import type {
@@ -37,7 +43,11 @@ export interface McpBinding<Parameters extends ParameterSet = ParameterSet> {
 
 export function defineMcpBinding<const Binding extends McpBinding>(
   binding: Binding,
-): Binding {
+): Binding;
+export function defineMcpBinding<const Parameters extends ParameterSet>(
+  binding: McpBinding<Parameters>,
+): McpBinding<Parameters>;
+export function defineMcpBinding(binding: McpBinding): McpBinding {
   return binding;
 }
 
@@ -73,13 +83,10 @@ export function createMcpInputSchema(
       }
     | { readonly endpoint: EntryTreeEndpoint },
 ): Record<string, z.ZodType> {
-  const resolved = resolveMcpInput(input);
+  const bindings = resolveMcpBindings(input);
   const shape: Record<string, z.ZodType> = {};
-  for (const row of resolved.binding.parameters) {
-    const parameter = requireParameter(
-      resolved.entry.parameters,
-      row.parameterName,
-    );
+  for (const binding of bindings) {
+    const { parameter } = binding;
     const describedSchema = parameter.codec.schema.describe(
       parameter.description,
     );
@@ -91,19 +98,19 @@ export function createMcpInputSchema(
   return shape;
 }
 
-function resolveMcpInput(
+function resolveMcpBindings(
   input:
     | {
         readonly entry: EntryDefinition<string, ParameterSet, unknown>;
         readonly binding: McpBinding;
       }
     | { readonly endpoint: EntryTreeEndpoint },
-): {
-  readonly entry: EntryDefinition<string, ParameterSet, unknown>;
-  readonly binding: McpBinding;
-} {
+): readonly CompiledParameterBinding<McpParameterBinding>[] {
   if ("entry" in input) {
-    return input;
+    return input.binding.parameters.map((row) => ({
+      row,
+      parameter: requireParameter(input.entry.parameters, row.parameterName),
+    }));
   }
   const channelBindings = input.endpoint.channels.filter(
     (candidate) => candidate.channel === CHANNEL.mcp,
@@ -118,48 +125,31 @@ function resolveMcpInput(
       `${input.endpoint.entry.name}: endpoint must have exactly one valid MCP binding`,
     ]);
   }
-  validateMcpBinding(input.endpoint, channelBinding.binding);
-  return {
-    entry: input.endpoint.entry,
-    binding: channelBinding.binding,
-  };
+  const compilation = compileParameterBindings(
+    input.endpoint.entry,
+    channelBinding.binding.parameters,
+  );
+  if (compilation.issues.length > 0) {
+    throw new EntryTreeDefinitionError(
+      compilation.issues.map((issue) =>
+        formatMcpParameterBindingIssue(input.endpoint.entry.name, issue),
+      ),
+    );
+  }
+  return compilation.bindings;
 }
 
-function validateMcpBinding(
-  endpoint: EntryTreeEndpoint,
-  binding: McpBinding,
-): void {
-  const issues: string[] = [];
-  const names = new Set<string>();
-  for (const row of binding.parameters) {
-    if (names.has(row.parameterName)) {
-      issues.push(`duplicate MCP binding for parameter ${row.parameterName}`);
-    }
-    names.add(row.parameterName);
-    if (
-      !endpoint.entry.parameters.some(
-        (parameter) => parameter.name === row.parameterName,
-      )
-    ) {
-      issues.push(
-        `MCP binding names nonexistent parameter ${row.parameterName}`,
-      );
-    }
-  }
-  for (const parameter of endpoint.entry.parameters) {
-    if (
-      parameter.requirement.presence === PARAMETER_PRESENCE.required &&
-      !names.has(parameter.name)
-    ) {
-      issues.push(
-        `required parameter ${parameter.name} is unreachable from MCP`,
-      );
-    }
-  }
-  if (issues.length > 0) {
-    throw new EntryTreeDefinitionError(
-      issues.map((issue) => `${endpoint.entry.name}: ${issue}`),
-    );
+function formatMcpParameterBindingIssue(
+  entryName: string,
+  issue: ParameterBindingIssue,
+): string {
+  switch (issue.kind) {
+    case PARAMETER_BINDING_ISSUE_KIND.duplicate:
+      return `${entryName}: duplicate MCP binding for parameter ${issue.parameterName}`;
+    case PARAMETER_BINDING_ISSUE_KIND.nonexistent:
+      return `${entryName}: MCP binding names nonexistent parameter ${issue.parameterName}`;
+    case PARAMETER_BINDING_ISSUE_KIND.requiredUnreachable:
+      return `${entryName}: required parameter ${issue.parameterName} is unreachable from MCP`;
   }
 }
 
