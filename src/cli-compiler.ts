@@ -1,4 +1,3 @@
-import type { JsonValue } from "@alpacaloop/core";
 import {
   type CompiledParameterBinding,
   compileParameterBindings,
@@ -16,9 +15,9 @@ import {
 } from "./cli-model.js";
 import { CLI_BOOLEAN_MODE } from "./cli-values.js";
 import type {
+  ErasedParameterDefinition,
   EntryTreeEndpoint,
   EntryTreeNode,
-  ParameterDefinition,
 } from "./model.js";
 import { formatTreePath } from "./schema.js";
 import { PARAMETER_PRESENCE, VALUE_SHAPE_KIND } from "./values.js";
@@ -44,10 +43,10 @@ export const CLI_POSITIONAL_PLAN_KIND = {
   rest: "rest",
 } as const;
 
-interface CompiledCliOptionBase {
-  readonly parameter: ParameterDefinition<string, JsonValue>;
+type CompiledCliOptionBase = {
+  readonly parameter: ErasedParameterDefinition;
   readonly flags: readonly string[];
-}
+};
 
 export type CompiledCliOption =
   | (CompiledCliOptionBase & {
@@ -66,7 +65,7 @@ export type CompiledCliPositional = {
   readonly kind:
     | typeof CLI_POSITIONAL_PLAN_KIND.single
     | typeof CLI_POSITIONAL_PLAN_KIND.rest;
-  readonly parameter: ParameterDefinition<string, JsonValue>;
+  readonly parameter: ErasedParameterDefinition;
   readonly valueName: string;
 };
 
@@ -84,13 +83,13 @@ export type CliOptionAction =
       >;
     };
 
-export interface CompiledCliEndpoint {
+export type CompiledCliEndpoint = {
   readonly endpoint: EntryTreeEndpoint;
   readonly parameterNames: readonly string[];
   readonly options: readonly CompiledCliOption[];
   readonly positionals: readonly CompiledCliPositional[];
   readonly optionByToken: ReadonlyMap<string, CliOptionAction>;
-}
+};
 
 export function compileCliBinding(
   endpoint: EntryTreeEndpoint,
@@ -159,6 +158,13 @@ function compileCliOption(
   if (row.flags.length === 0) {
     issues.push(`${location}: option ${row.parameterName} must declare a flag`);
   }
+  for (const flag of row.flags) {
+    if (!isReachableCliOptionFlag(flag)) {
+      issues.push(
+        `${location}: option ${row.parameterName} declares unreachable CLI flag ${JSON.stringify(flag)}`,
+      );
+    }
+  }
   switch (parameter.codec.shape.kind) {
     case VALUE_SHAPE_KIND.boolean:
       return compileCliBooleanOption(compiled, location, issues);
@@ -189,6 +195,17 @@ function compileCliOption(
         valueMode: CLI_OPTION_VALUE_MODE.replace,
       };
   }
+}
+
+function isReachableCliOptionFlag(flag: string): boolean {
+  return (
+    flag.startsWith("-") &&
+    flag !== "-" &&
+    flag !== "--" &&
+    !flag.startsWith("---") &&
+    !flag.includes("=") &&
+    !/\s/.test(flag)
+  );
 }
 
 function compileCliBooleanOption(

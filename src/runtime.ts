@@ -1,8 +1,8 @@
 import { CODEC_DECODE_RESULT_KIND, type JsonValue } from "@alpacaloop/core";
 import { findParameter } from "./internal.js";
 import type {
-  EntryDefinition,
-  ParameterDefinition,
+  ErasedParameterDefinition,
+  ErasedEntryDefinition,
   ParameterSet,
   ParameterValues,
   RawValueMap,
@@ -45,7 +45,7 @@ export type ParameterDecodeResult<Parameters extends ParameterSet> =
   | InvalidParameterDecodeResult;
 
 export type RawValueCoercer = (
-  parameter: ParameterDefinition<string, JsonValue>,
+  parameter: ErasedParameterDefinition,
   rawValue: unknown,
 ) => unknown;
 
@@ -129,7 +129,7 @@ export function decodeParameterValues<
 }
 
 function resolveParameterCandidate(
-  parameter: ParameterDefinition<string, JsonValue>,
+  parameter: ErasedParameterDefinition,
   rawValue: unknown,
 ): ParameterCandidate {
   if (rawValue !== undefined) {
@@ -150,14 +150,14 @@ function resolveParameterCandidate(
 }
 
 export function decodeEntryInput<
-  const Entry extends EntryDefinition<string, ParameterSet, unknown>,
+  const Entry extends ErasedEntryDefinition,
 >(input: {
   readonly entry: Entry;
   readonly parameterNames: readonly string[];
   readonly raw: RawValueMap;
   readonly coerce?: RawValueCoercer;
 }): EntryDecodeResult<ReturnType<Entry["project"]>> {
-  const decoded = decodeParameterValues({
+  const decoded = decodeParameterValues<Entry["parameters"]>({
     parameters: input.entry.parameters,
     parameterNames: input.parameterNames,
     raw: input.raw,
@@ -166,12 +166,15 @@ export function decodeEntryInput<
   if (decoded.kind === ENTRY_DECODE_RESULT_KIND.invalidInput) {
     return decoded;
   }
+  const project = input.entry.project as unknown as (input: {
+    readonly values: ParameterValues<Entry["parameters"]>;
+  }) => ReturnType<Entry["project"]>;
   try {
     return {
       kind: ENTRY_DECODE_RESULT_KIND.resolved,
-      projection: input.entry.project({
+      projection: project({
         values: decoded.values,
-      }) as ReturnType<Entry["project"]>,
+      }),
     };
   } catch (error) {
     return error instanceof EntryInputError

@@ -1,7 +1,4 @@
-import type {
-  ChannelSegmentOverride,
-  TypedEntryChannelBinding,
-} from "./model.js";
+import type { ChannelSegmentOverride, EntryChannelBinding } from "./model.js";
 import type { Channel } from "./values.js";
 
 export function createChannelSegmentOverride(
@@ -17,8 +14,8 @@ export function createEntryChannelBinding<
 >(
   channel: ChannelName,
   binding: unknown,
-): TypedEntryChannelBinding<ChannelName, ParameterName> {
-  return { channel, binding } as TypedEntryChannelBinding<
+): EntryChannelBinding<ChannelName, ParameterName> {
+  return { channel, binding } as EntryChannelBinding<
     ChannelName,
     ParameterName
   >;

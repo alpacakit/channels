@@ -1,4 +1,5 @@
 import { describe, expectTypeOf, it } from "vitest";
+import { z } from "zod";
 import {
   bindCliEntry,
   createCliRouter,
@@ -7,6 +8,7 @@ import {
 } from "../src/cli.js";
 import {
   codecs,
+  type EntryChannelBinding,
   defineEntry,
   defineEntryEndpoint,
   defineEntryNode,
@@ -18,6 +20,8 @@ import {
   type EntryTreeNode,
   optional,
   required,
+  VALUE_SHAPE_KIND,
+  type ValueShape,
 } from "../src/index.js";
 import { bindMcpEntry, defineMcpBinding, parseMcpEntry } from "../src/mcp.js";
 
@@ -57,10 +61,12 @@ describe("entry tree builder types", () => {
     );
 
     expectTypeOf(cli.binding).toEqualTypeOf<unknown>();
+    expectTypeOf(cli).toMatchTypeOf<EntryChannelBinding<"cli", "query">>();
     expectTypeOf(explicitMcp.parameters[0]?.parameterName).toEqualTypeOf<
       "query" | undefined
     >();
     expectTypeOf(endpoint).toMatchTypeOf<EntryTreeEndpoint>();
+    expectTypeOf(endpoint).toEqualTypeOf<EntryTreeEndpoint<typeof entry>>();
     expectTypeOf(endpoint.entry).toEqualTypeOf<typeof entry>();
     expectTypeOf(tree.root.endpoints[0]).toEqualTypeOf<
       EntryTreeEndpoint | undefined
@@ -170,5 +176,32 @@ describe("entry tree builder types", () => {
         },
       ],
     });
+    bindCliEntry({
+      parameters: [
+        {
+          kind: "option",
+          parameterName: "query",
+          // @ts-expect-error CLI option flags must begin with a hyphen
+          flags: ["query"],
+        },
+      ],
+    });
+  });
+
+  it("ties codec values to scalar or flat-array shapes", () => {
+    codecs.define({
+      // @ts-expect-error a string shape requires a string schema
+      schema: z.boolean(),
+      shape: { kind: VALUE_SHAPE_KIND.string },
+    });
+    const nestedArrayShape = {
+      kind: VALUE_SHAPE_KIND.array,
+      element: {
+        // @ts-expect-error CLI array elements must be scalar
+        kind: VALUE_SHAPE_KIND.array,
+        element: { kind: VALUE_SHAPE_KIND.string },
+      },
+    } satisfies ValueShape;
+    expectTypeOf(nestedArrayShape.kind).toEqualTypeOf<"array">();
   });
 });

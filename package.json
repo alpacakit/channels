@@ -31,11 +31,14 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@alpacaloop/core": "workspace:*",
+    "@alpacaloop/core": "workspace:*"
+  },
+  "peerDependencies": {
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "zod": "4.3.6"
   }
 }

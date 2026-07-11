@@ -1,23 +1,22 @@
 import {
   createSchemaRuntimeCodec,
-  type JsonValue,
   readonlyArraySchema,
 } from "@alpacaloop/core";
 import { z } from "zod";
-import type { ValueCodec, ValueShape } from "./model.js";
+import type { ValueCodec, ValueForShape, ValueShape } from "./model.js";
 import { VALUE_SHAPE_KIND } from "./values.js";
 
-function defineValueCodec<Value extends JsonValue>(input: {
-  readonly schema: z.ZodType<Value>;
-  readonly shape: ValueShape;
-}): ValueCodec<Value> {
+function defineValueCodec<const Shape extends ValueShape>(input: {
+  readonly schema: z.ZodType<ValueForShape<Shape>>;
+  readonly shape: Shape;
+}): ValueCodec<ValueForShape<Shape>> {
   const codec = createSchemaRuntimeCodec(input.schema);
   return {
     schema: input.schema,
     shape: input.shape,
     decode: codec.decode,
     encode: codec.encode,
-  };
+  } as unknown as ValueCodec<ValueForShape<Shape>>;
 }
 
 function stringCodec(): ValueCodec<string> {
@@ -66,7 +65,10 @@ function stringEnumListCodec<
     schema: readonlyArraySchema(element.schema),
     shape: {
       kind: VALUE_SHAPE_KIND.array,
-      element: element.shape,
+      element: {
+        kind: VALUE_SHAPE_KIND.stringEnum,
+        values,
+      },
     },
   });
 }

@@ -1,9 +1,7 @@
-import type { JsonValue } from "@alpacaloop/core";
 import { findParameter } from "./internal.js";
 import type {
-  EntryDefinition,
-  ParameterDefinition,
-  ParameterSet,
+  ErasedParameterDefinition,
+  ErasedEntryDefinition,
 } from "./model.js";
 import { PARAMETER_PRESENCE } from "./values.js";
 
@@ -13,16 +11,16 @@ export const PARAMETER_BINDING_ISSUE_KIND = {
   requiredUnreachable: "required_unreachable",
 } as const;
 
-export interface ParameterBindingRow {
+export type ParameterBindingRow = {
   readonly parameterName: string;
-}
+};
 
-export interface CompiledParameterBinding<
+export type CompiledParameterBinding<
   Row extends ParameterBindingRow = ParameterBindingRow,
-> {
+> = {
   readonly row: Row;
-  readonly parameter: ParameterDefinition<string, JsonValue>;
-}
+  readonly parameter: ErasedParameterDefinition;
+};
 
 export type ParameterBindingIssue =
   | {
@@ -38,13 +36,13 @@ export type ParameterBindingIssue =
       readonly parameterName: string;
     };
 
-export interface ParameterBindingCompilation<Row extends ParameterBindingRow> {
+export type ParameterBindingCompilation<Row extends ParameterBindingRow> = {
   readonly bindings: readonly CompiledParameterBinding<Row>[];
   readonly issues: readonly ParameterBindingIssue[];
-}
+};
 
 export function compileParameterBindings<Row extends ParameterBindingRow>(
-  entry: EntryDefinition<string, ParameterSet, unknown>,
+  entry: ErasedEntryDefinition,
   rows: readonly Row[],
 ): ParameterBindingCompilation<Row> {
   const bindings: CompiledParameterBinding<Row>[] = [];
