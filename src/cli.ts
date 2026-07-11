@@ -1,13 +1,16 @@
-import { CODEC_DECODE_RESULT_KIND, type JsonValue } from "@alpacaloop/core";
-import {
-  VALUE_SHAPE_KIND,
-  type EntryDefinition,
-  type ParameterSet,
-  type ParameterValues,
-  type RawValueMap,
-  type ValueShape,
-} from "./model.js";
+import type { JsonValue } from "@alpacaloop/core";
+import { coerceCliValue } from "./cli-coercion.js";
+import { CLI_BOOLEAN_MODE } from "./cli-values.js";
 import { requireParameter } from "./internal.js";
+import type {
+  EntryDefinition,
+  ParameterSet,
+  ParameterValues,
+  RawValueMap,
+  ValueShape,
+} from "./model.js";
+import { decodeParameterValues } from "./runtime.js";
+import { ENTRY_DECODE_RESULT_KIND, VALUE_SHAPE_KIND } from "./values.js";
 
 export const CLI_VALUE_KIND = {
   string: "string",
@@ -18,10 +21,7 @@ export const CLI_VALUE_KIND = {
 
 export type CliValueKind = (typeof CLI_VALUE_KIND)[keyof typeof CLI_VALUE_KIND];
 
-export const CLI_BOOLEAN_MODE = {
-  flag: "flag",
-  value: "value",
-} as const;
+export { CLI_BOOLEAN_MODE } from "./cli-values.js";
 
 export interface CliParameterBinding<Name extends string = string> {
   readonly parameterName: Name;
@@ -291,29 +291,19 @@ export function parseCliValues<
   readonly binding: CliBinding<Parameters>;
   readonly raw: RawValueMap;
 }): ParameterValues<Parameters> {
-  const output = new Map<string, JsonValue>();
-  for (const row of input.binding.parameters) {
-    const parameter = requireParameter(
-      input.entry.parameters,
-      row.parameterName,
+  const decoded = decodeParameterValues({
+    parameters: input.entry.parameters,
+    parameterNames: input.binding.parameters.map((row) => row.parameterName),
+    raw: input.raw,
+    coerce: (parameter, rawValue) =>
+      coerceCliValue(parameter.codec.shape, rawValue),
+  });
+  if (decoded.kind === ENTRY_DECODE_RESULT_KIND.invalidInput) {
+    throw new Error(
+      `Invalid CLI option ${decoded.parameterName ?? "input"}: ${decoded.issues.join("; ")}`,
     );
-    const rawValue = input.raw[parameter.name];
-    const value =
-      rawValue === undefined
-        ? parameter.requirement.defaultValue
-        : coerceCliValue(parameter.codec.shape, rawValue);
-    if (value === undefined) {
-      continue;
-    }
-    const decoded = parameter.codec.decode(value);
-    if (decoded.kind === CODEC_DECODE_RESULT_KIND.invalid) {
-      throw new Error(
-        `Invalid CLI option ${parameter.name}: ${decoded.issues.join("; ")}`,
-      );
-    }
-    output.set(parameter.name, decoded.value);
   }
-  return Object.fromEntries(output) as ParameterValues<Parameters>;
+  return decoded.values;
 }
 
 function cliOptionDescriptorFor(input: {
@@ -480,25 +470,5 @@ function flattenCliValueShape(shape: ValueShape): {
   }
 }
 
-function coerceCliValue(
-  shape: ValueShape,
-  rawValue: unknown,
-): JsonValue | undefined {
-  if (shape.kind === VALUE_SHAPE_KIND.array) {
-    const values = Array.isArray(rawValue) ? rawValue : [rawValue];
-    return values.map((value) => coerceCliScalarValue(shape.element, value));
-  }
-  return coerceCliScalarValue(shape, rawValue);
-}
-
-function coerceCliScalarValue(shape: ValueShape, value: unknown): JsonValue {
-  if (shape.kind === VALUE_SHAPE_KIND.boolean) {
-    if (value === "true") {
-      return true;
-    }
-    if (value === "false") {
-      return false;
-    }
-  }
-  return value as JsonValue;
-}
+export * from "./cli-model.js";
+export { createCliRouter } from "./cli-tree.js";

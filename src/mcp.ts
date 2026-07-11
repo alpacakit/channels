@@ -1,19 +1,24 @@
-import {
-  CODEC_DECODE_RESULT_KIND,
-  type JsonObject,
-  type JsonValue,
-} from "@alpacaloop/core";
+import type { JsonObject } from "@alpacaloop/core";
 import type { z } from "zod";
-import {
-  PARAMETER_PRESENCE,
-  type EntryDefinition,
-  type EntryDefinitionWithOutput,
-  type ParameterSet,
-  type ParameterValues,
-  type RawValueMap,
-} from "./model.js";
-import { requireParameter } from "./internal.js";
 import { requireEntryOutput } from "./contract.js";
+import { requireParameter } from "./internal.js";
+import type {
+  EntryDefinition,
+  EntryDefinitionWithOutput,
+  EntryTreeEndpoint,
+  ParameterSet,
+  ParameterValues,
+  RawValueMap,
+  TypedEntryChannelBinding,
+} from "./model.js";
+import { decodeParameterValues } from "./runtime.js";
+import { EntryTreeDefinitionError, findChannelBinding } from "./schema.js";
+import { createEntryChannelBinding } from "./tree-internal.js";
+import {
+  CHANNEL,
+  ENTRY_DECODE_RESULT_KIND,
+  PARAMETER_PRESENCE,
+} from "./values.js";
 
 const ZOD_SCHEMA_TYPE = {
   object: "object",
@@ -30,10 +35,23 @@ export interface McpBinding<Parameters extends ParameterSet = ParameterSet> {
   >[];
 }
 
-export function defineMcpBinding<const Parameters extends ParameterSet>(
-  binding: McpBinding<Parameters>,
-): McpBinding<Parameters> {
+export function defineMcpBinding<const Binding extends McpBinding>(
+  binding: Binding,
+): Binding {
   return binding;
+}
+
+export function bindMcpEntry<
+  const Binding extends {
+    readonly parameters: readonly McpParameterBinding[];
+  },
+>(
+  binding: Binding,
+): TypedEntryChannelBinding<
+  typeof CHANNEL.mcp,
+  Binding["parameters"][number]["parameterName"]
+> {
+  return createEntryChannelBinding(CHANNEL.mcp, binding);
 }
 
 export function createMcpInputSchema<
@@ -43,11 +61,23 @@ export function createMcpInputSchema<
 >(input: {
   readonly entry: EntryDefinition<Name, Parameters, Projection>;
   readonly binding: McpBinding<Parameters>;
-}): Record<string, z.ZodType> {
+}): Record<string, z.ZodType>;
+export function createMcpInputSchema(input: {
+  readonly endpoint: EntryTreeEndpoint;
+}): Record<string, z.ZodType>;
+export function createMcpInputSchema(
+  input:
+    | {
+        readonly entry: EntryDefinition<string, ParameterSet, unknown>;
+        readonly binding: McpBinding;
+      }
+    | { readonly endpoint: EntryTreeEndpoint },
+): Record<string, z.ZodType> {
+  const resolved = resolveMcpInput(input);
   const shape: Record<string, z.ZodType> = {};
-  for (const row of input.binding.parameters) {
+  for (const row of resolved.binding.parameters) {
     const parameter = requireParameter(
-      input.entry.parameters,
+      resolved.entry.parameters,
       row.parameterName,
     );
     const describedSchema = parameter.codec.schema.describe(
@@ -59,6 +89,96 @@ export function createMcpInputSchema<
         : describedSchema;
   }
   return shape;
+}
+
+function resolveMcpInput(
+  input:
+    | {
+        readonly entry: EntryDefinition<string, ParameterSet, unknown>;
+        readonly binding: McpBinding;
+      }
+    | { readonly endpoint: EntryTreeEndpoint },
+): {
+  readonly entry: EntryDefinition<string, ParameterSet, unknown>;
+  readonly binding: McpBinding;
+} {
+  if ("entry" in input) {
+    return input;
+  }
+  const channelBindings = input.endpoint.channels.filter(
+    (candidate) => candidate.channel === CHANNEL.mcp,
+  );
+  const channelBinding = findChannelBinding(input.endpoint, CHANNEL.mcp);
+  if (
+    channelBindings.length !== 1 ||
+    !channelBinding ||
+    !isMcpBinding(channelBinding.binding)
+  ) {
+    throw new EntryTreeDefinitionError([
+      `${input.endpoint.entry.name}: endpoint must have exactly one valid MCP binding`,
+    ]);
+  }
+  validateMcpBinding(input.endpoint, channelBinding.binding);
+  return {
+    entry: input.endpoint.entry,
+    binding: channelBinding.binding,
+  };
+}
+
+function validateMcpBinding(
+  endpoint: EntryTreeEndpoint,
+  binding: McpBinding,
+): void {
+  const issues: string[] = [];
+  const names = new Set<string>();
+  for (const row of binding.parameters) {
+    if (names.has(row.parameterName)) {
+      issues.push(`duplicate MCP binding for parameter ${row.parameterName}`);
+    }
+    names.add(row.parameterName);
+    if (
+      !endpoint.entry.parameters.some(
+        (parameter) => parameter.name === row.parameterName,
+      )
+    ) {
+      issues.push(
+        `MCP binding names nonexistent parameter ${row.parameterName}`,
+      );
+    }
+  }
+  for (const parameter of endpoint.entry.parameters) {
+    if (
+      parameter.requirement.presence === PARAMETER_PRESENCE.required &&
+      !names.has(parameter.name)
+    ) {
+      issues.push(
+        `required parameter ${parameter.name} is unreachable from MCP`,
+      );
+    }
+  }
+  if (issues.length > 0) {
+    throw new EntryTreeDefinitionError(
+      issues.map((issue) => `${endpoint.entry.name}: ${issue}`),
+    );
+  }
+}
+
+function isMcpBinding(value: unknown): value is McpBinding {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("parameters" in value) ||
+    !Array.isArray(value.parameters)
+  ) {
+    return false;
+  }
+  return value.parameters.every(
+    (row) =>
+      typeof row === "object" &&
+      row !== null &&
+      "parameterName" in row &&
+      typeof row.parameterName === "string",
+  );
 }
 
 export function createMcpOutputSchema<Output extends JsonObject>(input: {
@@ -96,25 +216,15 @@ export function parseMcpValues<
   readonly binding: McpBinding<Parameters>;
   readonly raw: RawValueMap;
 }): ParameterValues<Parameters> {
-  const output = new Map<string, JsonValue>();
-  for (const row of input.binding.parameters) {
-    const parameter = requireParameter(
-      input.entry.parameters,
-      row.parameterName,
+  const decoded = decodeParameterValues({
+    parameters: input.entry.parameters,
+    parameterNames: input.binding.parameters.map((row) => row.parameterName),
+    raw: input.raw,
+  });
+  if (decoded.kind === ENTRY_DECODE_RESULT_KIND.invalidInput) {
+    throw new Error(
+      `Invalid MCP argument ${decoded.parameterName ?? "input"}: ${decoded.issues.join("; ")}`,
     );
-    const rawValue = input.raw[parameter.name];
-    const value =
-      rawValue === undefined ? parameter.requirement.defaultValue : rawValue;
-    if (value === undefined) {
-      continue;
-    }
-    const decoded = parameter.codec.decode(value);
-    if (decoded.kind === CODEC_DECODE_RESULT_KIND.invalid) {
-      throw new Error(
-        `Invalid MCP argument ${parameter.name}: ${decoded.issues.join("; ")}`,
-      );
-    }
-    output.set(parameter.name, decoded.value);
   }
-  return Object.fromEntries(output) as ParameterValues<Parameters>;
+  return decoded.values;
 }
