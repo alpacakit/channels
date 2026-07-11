@@ -355,6 +355,12 @@ describe("CLI entry tree router", () => {
           requirement: optional({ default: 1 }),
           description: "Max depth",
         }),
+        defineParameter({
+          name: "secret_id",
+          codec: codecs.string(),
+          requirement: required(),
+          description: "Secret id",
+        }),
       ],
       project: ({ values }) => values,
     });
@@ -370,6 +376,7 @@ describe("CLI entry tree router", () => {
                 parameters: [
                   { kind: "positional", parameterName: "target" },
                   { kind: "option", parameterName: "maxDepth" },
+                  { kind: "option", parameterName: "secret_id" },
                 ],
               }),
             ),
@@ -387,10 +394,16 @@ describe("CLI entry tree router", () => {
       (option) => option.parameterName === "maxDepth",
     );
     expect(maxDepthOption?.flags).toEqual(["--max-depth"]);
+    const secretIdOption = router.help.options.find(
+      (option) => option.parameterName === "secret_id",
+    );
+    expect(secretIdOption?.flags).toEqual(["--secret-id"]);
 
-    expect(router.resolve(["value", "--max-depth", "3"])).toMatchObject({
+    expect(
+      router.resolve(["value", "--max-depth", "3", "--secret-id", "token"]),
+    ).toMatchObject({
       kind: CLI_ROUTER_RESULT_KIND.resolved,
-      projection: { target: "value", maxDepth: 3 },
+      projection: { target: "value", maxDepth: 3, secret_id: "token" },
     });
   });
 
