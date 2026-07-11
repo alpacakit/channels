@@ -347,4 +347,53 @@ describe("Phase-A entry tree definition validation", () => {
       "required parameter value is unreachable from MCP",
     );
   });
+
+  it("rejects collisions with generated negated option flags", () => {
+    const entry = defineEntry({
+      name: "negated-collision",
+      parameters: [
+        defineParameter({
+          name: "feature",
+          codec: codecs.boolean(),
+          requirement: optional({ default: false }),
+          description: "Feature",
+        }),
+        defineParameter({
+          name: "target",
+          codec: codecs.string(),
+          requirement: required(),
+          description: "Target",
+        }),
+      ],
+      project: ({ values }) => values,
+    });
+
+    expectInvalid(
+      node({
+        name: "root",
+        description: "Root",
+        endpoints: [
+          defineEntryEndpoint(
+            entry,
+            bindCliEntry({
+              parameters: [
+                {
+                  kind: "option",
+                  parameterName: "feature",
+                  flags: ["--feature"],
+                  negated: true,
+                },
+                {
+                  kind: "option",
+                  parameterName: "target",
+                  flags: ["--no-feature"],
+                },
+              ],
+            }),
+          ),
+        ],
+      }),
+      "duplicate CLI option flag --no-feature",
+    );
+  });
 });

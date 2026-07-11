@@ -36,6 +36,9 @@ describe("entry tree builder types", () => {
     const mcp = bindMcpEntry(
       defineMcpBinding({ parameters: [{ parameterName: "query" }] }),
     );
+    const explicitMcp = defineMcpBinding<typeof entry.parameters>({
+      parameters: [{ parameterName: "query" }],
+    });
     const endpoint = defineEntryEndpoint(entry, cli, mcp);
     const tree = defineEntryTree(
       defineEntryNode({
@@ -47,6 +50,9 @@ describe("entry tree builder types", () => {
     );
 
     expectTypeOf(cli.binding).toEqualTypeOf<unknown>();
+    expectTypeOf(explicitMcp.parameters[0]?.parameterName).toEqualTypeOf<
+      "query" | undefined
+    >();
     expectTypeOf(endpoint).toEqualTypeOf<EntryTreeEndpoint>();
     expectTypeOf(tree).toEqualTypeOf<EntryTreeDefinition>();
     expectTypeOf({
