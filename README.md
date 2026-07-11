@@ -297,6 +297,20 @@ my-app                    <- root surface name
 The root name is the program or surface name. It is not included in the argv
 passed to the router.
 
+Independent modules can contribute canonical nodes and merge them without an
+intermediate route model:
+
+```ts
+const children = mergeEntryTreeNodes([
+  ...configCommandNodes,
+  ...integrationCommandNodes,
+]);
+```
+
+Nodes with the same name are merged recursively. Their descriptions and
+channel segment overrides must agree; identical endpoint objects are
+deduplicated by identity.
+
 An endpoint placed directly on the root is the default command:
 
 ```text
@@ -376,6 +390,19 @@ The same router also exposes a channel-derived help surface:
 ```ts
 const help = router.help;
 ```
+
+For applications with many endpoints, an optional typed registry replaces a
+manual identity-check chain:
+
+```ts
+const executor = createCliExecutor(router, [
+  handleCliEndpoint(HintEndpoint, ({ projection }) => runHint(projection)),
+]);
+```
+
+The registry rejects duplicate, missing, and out-of-router endpoints when it is
+created. Handlers, output policy, and process exit behavior remain outside the
+Entry definition.
 
 ## 6. Execute the same Endpoint from MCP
 
@@ -530,7 +557,7 @@ The neutral model and channel adapters are intentionally separate imports:
 | Import | Purpose |
 | --- | --- |
 | `@alpacaloop/channels` | Parameters, codecs, entries, output contracts, and entry-tree builders |
-| `@alpacaloop/channels/cli` | CLI bindings, segment overrides, router, typed result guard, and help surface |
+| `@alpacaloop/channels/cli` | CLI bindings/coercion, router, typed executor, help traversal, and text renderers |
 | `@alpacaloop/channels/mcp` | MCP binding, the compiled endpoint handle, output schema projection, and the resolved-result guard |
 
 `zod` is a peer dependency. In this workspace, depend on the package with
@@ -578,6 +605,8 @@ CLI binding and routing rules:
 
 - An option with no `flags` defaults to a single `--<kebab-case parameter
   name>` long flag. Provide `flags` only to add aliases or a short flag.
+- A value-taking option's `valueName` defaults to the upper snake-cased
+  parameter name. Boolean flags reject `valueName` because they take no value.
 - A positional's `valueName` defaults to the upper snake-cased parameter name,
   and `variadic` defaults to `false`. State either only to override it.
 - Options use reachable `-x` or `--long` flags. Requiredness comes from the
@@ -593,12 +622,18 @@ CLI binding and routing rules:
 - An executable node cannot have both positional arguments and child commands.
 - `--` forces all remaining tokens to be parsed as positionals.
 - A matching child command wins over an executable parent.
+- `coercion: "json"` parses strict JSON before Entry validation.
+  `coercion: "json_or_string"` preserves malformed JSON as text. Final value
+  validation always belongs to the Entry codec.
 
 `createCliRouter()` compiles and validates the complete CLI surface. Invalid
 definitions throw `EntryTreeDefinitionError` at construction time.
 
 The router's `help` property contains the compiled hierarchy, aliases, options,
 positionals, requiredness, defaults, repeat modes, and generated negative flags.
+`findCliHelpSurface()`, `renderCliHelp()`, and `formatCliRouterError()` provide
+optional standard traversal and text rendering without writing output or
+choosing an exit code. `--help` and `--version` remain application policy.
 
 The router returns a discriminated union:
 
@@ -608,8 +643,8 @@ The router returns a discriminated union:
 - `invalid_input`
 - `internal_error`
 
-`path` is preserved for diagnostics. Error wording and process exit codes are
-consumer responsibilities.
+`path` is preserved for diagnostics. Consumers may use the standard formatter
+or supply their own wording. Process exit codes remain consumer policy.
 
 ## MCP reference
 
@@ -701,7 +736,9 @@ passed to `verifyEntryOutput()` throws `EntryOutputContractError`.
 - `EntryTreeDefinitionError` means the Tree or a channel Binding is invalid.
   Treat it as a startup or programmer error.
 - `EntryInputError` may be thrown inside `project()` for an expected semantic
-  input rejection. It becomes `invalid_input`.
+  input rejection. It becomes `invalid_input`. Pass
+  `{ parameterName: "name" }` to associate all issues with one Entry parameter;
+  an unknown parameter name is an `internal_error` programmer failure.
 - Codec and required-input failures become `invalid_input`.
 - Any other projection exception becomes `internal_error` and retains the
   original error. It is never reported as caller input failure.
@@ -710,9 +747,19 @@ passed to `verifyEntryOutput()` throws `EntryOutputContractError`.
 
 ## Scope
 
-The package currently provides the neutral entry tree, CLI router, and MCP
-endpoint adapter. It does not provide an HTTP router, process exit policy, CLI
-error wording, MCP tool registration, authentication, or a network listener.
+The package currently provides the neutral entry tree, CLI router, optional CLI
+executor and text renderers, and MCP endpoint adapter. It does not provide an
+HTTP router, process exit policy, automatic `--help`/`--version` handling, MCP
+tool registration, authentication, or a network listener.
 
 Every command surface uses `defineEntryEndpoint()` with `bindCliEntry()` and
 `bindMcpEntry()`. There is no separate legacy option-descriptor API.
+
+## Zod peer and source linking
+
+Packed consumers are type-checked against the declared `zod: ^4.3.6` peer. A
+packed channels build was verified with both Zod 4.3.6 and 4.4.3. Source-linking
+the package is different: if channels resolves its development Zod 4.3.6 while
+the consumer resolves 4.4.3, TypeScript can expand the two distinct Zod type
+graphs until it reports excessive depth or exhausts memory. When linking source,
+use exactly one shared Zod installation/version, or consume a packed tarball.

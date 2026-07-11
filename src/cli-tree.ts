@@ -21,6 +21,7 @@ import {
 } from "./cli-model.js";
 import type {
   EntryTreeDefinition,
+  EntryTreeEndpoint,
   EntryTreeNode,
   RawValueMap,
 } from "./model.js";
@@ -48,8 +49,27 @@ export function createCliRouter(tree: EntryTreeDefinition): CliRouter {
   const root = compileCliTree(tree);
   return {
     help: root.help,
+    endpoints: listCliEndpoints(root),
     resolve: (argv) => resolveCli(root, argv),
   };
+}
+
+function listCliEndpoints(root: CompiledCliNode): readonly EntryTreeEndpoint[] {
+  const endpoints: EntryTreeEndpoint[] = [];
+  const visited = new Set<CompiledCliNode>();
+  const pending = [root];
+  while (pending.length > 0) {
+    const node = pending.pop();
+    if (!node || visited.has(node)) {
+      continue;
+    }
+    visited.add(node);
+    if (node.endpoint !== null) {
+      endpoints.push(node.endpoint.endpoint);
+    }
+    pending.push(...node.childByToken.values());
+  }
+  return endpoints;
 }
 
 function compileCliTree(tree: EntryTreeDefinition): CompiledCliNode {
@@ -276,11 +296,12 @@ function resolveCli(
           token: unmatchedToken,
         };
   }
-  const rawResult = parseCliArguments(node.endpoint, argv.slice(index));
+  const compiledEndpoint = node.endpoint;
+  const rawResult = parseCliArguments(compiledEndpoint, argv.slice(index));
   if (rawResult.kind === CLI_ROUTER_RESULT_KIND.invalidInput) {
     return { ...rawResult, path: node.path };
   }
-  const endpoint = node.endpoint.endpoint;
+  const endpoint = compiledEndpoint.endpoint;
   const decoded = decodeEntryInput({
     entry: endpoint.entry,
     parameterNames: endpoint.entry.parameters.map(
@@ -288,7 +309,11 @@ function resolveCli(
     ),
     raw: rawResult.raw,
     coerce: (parameter, rawValue) =>
-      coerceCliArgvValue(parameter.codec.shape, rawValue),
+      coerceCliArgvValue(
+        parameter.codec.shape,
+        rawValue,
+        cliCoercionFor(compiledEndpoint, parameter.name),
+      ),
   });
   switch (decoded.kind) {
     case ENTRY_DECODE_RESULT_KIND.resolved:
@@ -312,6 +337,12 @@ function resolveCli(
         error: decoded.error,
       };
   }
+}
+
+function cliCoercionFor(endpoint: CompiledCliEndpoint, parameterName: string) {
+  return [...endpoint.options, ...endpoint.positionals].find(
+    (binding) => binding.parameter.name === parameterName,
+  )?.coercion;
 }
 
 type InvalidCliResult = {
@@ -489,10 +520,14 @@ function isCliArgBinding(value: unknown): value is CliArgBinding {
   }
   if (value.kind === CLI_ARG_KIND.option) {
     return (
-      !("flags" in value) ||
-      value.flags === undefined ||
-      (Array.isArray(value.flags) &&
-        value.flags.every((flag) => typeof flag === "string"))
+      (!("flags" in value) ||
+        value.flags === undefined ||
+        (Array.isArray(value.flags) &&
+          value.flags.every((flag) => typeof flag === "string"))) &&
+      (!("valueName" in value) ||
+        value.valueName === undefined ||
+        typeof value.valueName === "string") &&
+      hasValidCliCoercion(value)
     );
   }
   return (
@@ -500,9 +535,19 @@ function isCliArgBinding(value: unknown): value is CliArgBinding {
     (!("valueName" in value) ||
       value.valueName === undefined ||
       typeof value.valueName === "string") &&
+    hasValidCliCoercion(value) &&
     (!("variadic" in value) ||
       value.variadic === undefined ||
       typeof value.variadic === "boolean")
+  );
+}
+
+function hasValidCliCoercion(value: object): boolean {
+  return (
+    !("coercion" in value) ||
+    value.coercion === undefined ||
+    value.coercion === "json" ||
+    value.coercion === "json_or_string"
   );
 }
 

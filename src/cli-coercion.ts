@@ -1,11 +1,16 @@
 import type { JsonValue } from "@alpacaloop/core";
 import type { ValueShape } from "./model.js";
+import { CLI_VALUE_COERCION, type CliValueCoercion } from "./cli-model.js";
 import { VALUE_SHAPE_KIND } from "./values.js";
 
 export function coerceCliArgvValue(
   shape: ValueShape,
   rawValue: unknown,
+  coercion?: CliValueCoercion,
 ): JsonValue | undefined {
+  if (coercion !== undefined) {
+    return coerceExplicitCliValue(rawValue, coercion);
+  }
   if (shape.kind === VALUE_SHAPE_KIND.array) {
     const values = Array.isArray(rawValue) ? rawValue : [rawValue];
     return values.map((value) =>
@@ -30,9 +35,40 @@ function coerceCliArgvScalarValue(
   if (
     shape.kind === VALUE_SHAPE_KIND.positiveInteger &&
     typeof value === "string" &&
-    /^[1-9]\d*$/.test(value)
+    /^[+-]?\d+$/.test(value)
   ) {
     return Number(value);
   }
   return value as JsonValue;
+}
+
+function coerceExplicitCliValue(
+  rawValue: unknown,
+  coercion: CliValueCoercion,
+): JsonValue | undefined {
+  if (Array.isArray(rawValue)) {
+    return rawValue.map((value) => coerceExplicitCliScalar(value, coercion));
+  }
+  return coerceExplicitCliScalar(rawValue, coercion);
+}
+
+function coerceExplicitCliScalar(
+  value: unknown,
+  coercion: CliValueCoercion,
+): JsonValue {
+  if (typeof value !== "string") {
+    return value as JsonValue;
+  }
+  try {
+    return JSON.parse(value) as JsonValue;
+  } catch (error) {
+    if (coercion === CLI_VALUE_COERCION.jsonOrString) {
+      return value;
+    }
+    throw new Error(`Invalid JSON value: ${errorMessage(error)}`);
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

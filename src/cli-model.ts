@@ -21,6 +21,11 @@ export const CLI_REPEAT_MODE = {
   commaOrRepeat: "comma_or_repeat",
 } as const;
 
+export const CLI_VALUE_COERCION = {
+  json: "json",
+  jsonOrString: "json_or_string",
+} as const;
+
 export const CLI_ROUTER_RESULT_KIND = {
   resolved: "resolved",
   unknownCommand: "unknown_command",
@@ -35,6 +40,9 @@ export type CliBooleanMode =
 export type CliRepeatMode =
   (typeof CLI_REPEAT_MODE)[keyof typeof CLI_REPEAT_MODE];
 
+export type CliValueCoercion =
+  (typeof CLI_VALUE_COERCION)[keyof typeof CLI_VALUE_COERCION];
+
 export type CliLongOptionFlag = `--${string}`;
 export type CliOptionFlag = `-${string}`;
 
@@ -44,6 +52,10 @@ export type CliArgBinding<Name extends string = string> =
       readonly parameterName: Name;
       /** Defaults to `--<kebab-case parameter name>` when omitted. */
       readonly flags?: readonly CliOptionFlag[];
+      /** Displayed after the option flag. Defaults from `parameterName`. */
+      readonly valueName?: string;
+      /** Overrides the default scalar coercion performed for CLI strings. */
+      readonly coercion?: CliValueCoercion;
       readonly booleanMode?: CliBooleanMode;
       readonly negated?: true;
       readonly repeatMode?: typeof CLI_REPEAT_MODE.commaOrRepeat;
@@ -53,6 +65,8 @@ export type CliArgBinding<Name extends string = string> =
       readonly parameterName: Name;
       /** Defaults to the upper snake-cased parameter name when omitted. */
       readonly valueName?: string;
+      /** Overrides the default scalar coercion performed for CLI strings. */
+      readonly coercion?: CliValueCoercion;
       /** Defaults to `false` when omitted. */
       readonly variadic?: boolean;
     };
@@ -83,6 +97,7 @@ export function overrideCliSegment(
 export type CliHelpOption = {
   readonly parameterName: string;
   readonly flags: readonly string[];
+  readonly valueName: string | null;
   readonly description: string;
   readonly required: boolean;
   readonly booleanMode: CliBooleanMode | null;
@@ -163,5 +178,6 @@ export function isCliResolvedEndpoint<const Endpoint extends EntryTreeEndpoint>(
 
 export interface CliRouter {
   readonly help: CliHelpSurface;
+  readonly endpoints: readonly EntryTreeEndpoint[];
   resolve(argv: readonly string[]): CliRouterResult;
 }

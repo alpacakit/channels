@@ -10,9 +10,15 @@ import type {
 import { ENTRY_DECODE_RESULT_KIND, PARAMETER_PRESENCE } from "./values.js";
 
 export class EntryInputError extends Error {
-  constructor(readonly issues: readonly string[]) {
+  readonly parameterName: string | null;
+
+  constructor(
+    readonly issues: readonly string[],
+    options: { readonly parameterName?: string } = {},
+  ) {
     super(issues.join("; "));
     this.name = EntryInputError.name;
+    this.parameterName = options.parameterName ?? null;
   }
 }
 
@@ -177,13 +183,22 @@ export function decodeEntryInput<
       }),
     };
   } catch (error) {
-    return error instanceof EntryInputError
-      ? {
-          kind: ENTRY_DECODE_RESULT_KIND.invalidInput,
-          parameterName: null,
-          issues: error.issues,
-        }
-      : { kind: ENTRY_DECODE_RESULT_KIND.internalError, error };
+    if (error instanceof EntryInputError) {
+      if (
+        error.parameterName !== null &&
+        !input.entry.parameters.some(
+          (parameter) => parameter.name === error.parameterName,
+        )
+      ) {
+        return { kind: ENTRY_DECODE_RESULT_KIND.internalError, error };
+      }
+      return {
+        kind: ENTRY_DECODE_RESULT_KIND.invalidInput,
+        parameterName: error.parameterName,
+        issues: error.issues,
+      };
+    }
+    return { kind: ENTRY_DECODE_RESULT_KIND.internalError, error };
   }
 }
 

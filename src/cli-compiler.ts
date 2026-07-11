@@ -12,6 +12,7 @@ import {
   type CliHelpOption,
   type CliHelpSurface,
   type CliSegment,
+  type CliValueCoercion,
 } from "./cli-model.js";
 import { CLI_BOOLEAN_MODE } from "./cli-values.js";
 import type {
@@ -46,6 +47,7 @@ export const CLI_POSITIONAL_PLAN_KIND = {
 type CompiledCliOptionBase = {
   readonly parameter: ErasedParameterDefinition;
   readonly flags: readonly string[];
+  readonly coercion: CliValueCoercion | undefined;
 };
 
 export type CompiledCliOption =
@@ -59,6 +61,7 @@ export type CompiledCliOption =
         | typeof CLI_OPTION_VALUE_MODE.replace
         | typeof CLI_OPTION_VALUE_MODE.repeat
         | typeof CLI_OPTION_VALUE_MODE.commaOrRepeat;
+      readonly valueName: string;
     });
 
 export type CompiledCliPositional = {
@@ -67,6 +70,7 @@ export type CompiledCliPositional = {
     | typeof CLI_POSITIONAL_PLAN_KIND.rest;
   readonly parameter: ErasedParameterDefinition;
   readonly valueName: string;
+  readonly coercion: CliValueCoercion | undefined;
 };
 
 export type CliOptionAction =
@@ -164,6 +168,11 @@ function compileCliOption(
       );
     }
   }
+  if (row.valueName !== undefined && row.valueName.length === 0) {
+    issues.push(
+      `${location}: option ${row.parameterName} valueName must not be empty`,
+    );
+  }
   switch (parameter.codec.shape.kind) {
     case VALUE_SHAPE_KIND.boolean:
       return compileCliBooleanOption(compiled, flags, location, issues);
@@ -173,6 +182,8 @@ function compileCliOption(
         kind: CLI_OPTION_PLAN_KIND.value,
         parameter,
         flags,
+        coercion: row.coercion,
+        valueName: row.valueName ?? defaultCliValueName(parameter.name),
         valueMode:
           row.repeatMode === CLI_REPEAT_MODE.commaOrRepeat
             ? CLI_OPTION_VALUE_MODE.commaOrRepeat
@@ -191,6 +202,8 @@ function compileCliOption(
         kind: CLI_OPTION_PLAN_KIND.value,
         parameter,
         flags,
+        coercion: row.coercion,
+        valueName: row.valueName ?? defaultCliValueName(parameter.name),
         valueMode: CLI_OPTION_VALUE_MODE.replace,
       };
   }
@@ -218,7 +231,7 @@ function defaultCliOptionFlag(parameterName: string): string {
   return `--${toKebabCase(parameterName)}`;
 }
 
-function defaultCliPositionalValueName(parameterName: string): string {
+function defaultCliValueName(parameterName: string): string {
   return toKebabCase(parameterName).replace(/-/g, "_").toUpperCase();
 }
 
@@ -251,8 +264,20 @@ function compileCliBooleanOption(
       kind: CLI_OPTION_PLAN_KIND.value,
       parameter,
       flags,
+      coercion: row.coercion,
+      valueName: row.valueName ?? defaultCliValueName(parameter.name),
       valueMode: CLI_OPTION_VALUE_MODE.replace,
     };
+  }
+  if (row.valueName !== undefined) {
+    issues.push(
+      `${location}: valueName contradicts flag booleanMode for ${row.parameterName}`,
+    );
+  }
+  if (row.coercion !== undefined) {
+    issues.push(
+      `${location}: coercion contradicts flag booleanMode for ${row.parameterName}`,
+    );
   }
   const negativeFlags = row.negated
     ? flags
@@ -268,6 +293,7 @@ function compileCliBooleanOption(
     kind: CLI_OPTION_PLAN_KIND.booleanFlag,
     parameter,
     flags,
+    coercion: undefined,
     negativeFlags,
   };
 }
@@ -298,8 +324,7 @@ function compileCliPositional(
 ): CompiledCliPositional {
   const { row, parameter } = compiled;
   const variadic = row.variadic ?? false;
-  const valueName =
-    row.valueName ?? defaultCliPositionalValueName(parameter.name);
+  const valueName = row.valueName ?? defaultCliValueName(parameter.name);
   if (variadic && parameter.codec.shape.kind !== VALUE_SHAPE_KIND.array) {
     issues.push(
       `${location}: variadic positional ${row.parameterName} requires an array codec`,
@@ -316,6 +341,7 @@ function compileCliPositional(
       : CLI_POSITIONAL_PLAN_KIND.single,
     parameter,
     valueName,
+    coercion: row.coercion,
   };
 }
 
@@ -429,6 +455,7 @@ function cliHelpOptionFor(option: CompiledCliOption): CliHelpOption {
   return {
     parameterName: option.parameter.name,
     flags: option.flags,
+    valueName: booleanFlag ? null : option.valueName,
     description: option.parameter.description,
     required:
       option.parameter.requirement.presence === PARAMETER_PRESENCE.required,
