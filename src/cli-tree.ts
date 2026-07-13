@@ -1,24 +1,31 @@
 import { coerceCliArgvValue } from "./cli-coercion.js";
 import {
   CLI_OPTION_ACTION_KIND,
-  CLI_OPTION_VALUE_MODE,
-  CLI_POSITIONAL_PLAN_KIND,
   type CliOptionAction,
   type CompiledCliEndpoint,
   type CompiledCliOption,
   compileCliBinding,
-  createCliHelpSurface,
 } from "./cli-compiler.js";
 import {
-  CLI_ARG_KIND,
+  createCliHelpSurface,
+  validateCliCommandHelp,
+  validateCliHelpExamples,
+} from "./cli-help-projection.js";
+import {
   CLI_ROUTER_RESULT_KIND,
-  type CliArgBinding,
-  type CliEntryBinding,
+  type CliGroupHelp,
   type CliHelpSurface,
   type CliRouter,
   type CliRouterResult,
   type CliSegment,
+  type CliValueCoercion,
 } from "./cli-model.js";
+import { isCliEntryBinding, isCliSegment } from "./cli-schema.js";
+import {
+  type CLI_OPTION_KIND,
+  CLI_OPTION_VALUE_MODE,
+  CLI_POSITIONAL_PLAN_KIND,
+} from "./cli-values.js";
 import type {
   EntryTreeDefinition,
   EntryTreeEndpoint,
@@ -35,7 +42,41 @@ import {
 } from "./schema.js";
 import { CHANNEL, ENTRY_DECODE_RESULT_KIND } from "./values.js";
 
-const CLI_POSITIONAL_SEPARATOR = "--";
+const CLI_ARGUMENT_SYNTAX = {
+  inlineValueSeparator: "=",
+  optionPrefix: "-",
+  positionalSeparator: "--",
+  repeatedValueSeparator: ",",
+} as const;
+
+const CLI_ARGUMENT_TOKEN_KIND = {
+  option: "option",
+  positionalSeparator: "positional_separator",
+  value: "value",
+} as const;
+
+type CliArgumentTokenKind =
+  (typeof CLI_ARGUMENT_TOKEN_KIND)[keyof typeof CLI_ARGUMENT_TOKEN_KIND];
+
+const CLI_PARSE_RESULT_KIND = {
+  parsed: "parsed",
+  raw: "raw",
+} as const;
+
+const CLI_SEGMENT_NAME_KIND = {
+  alias: "alias",
+  token: "token",
+} as const;
+
+const CLI_TREE_VALIDATION_ISSUE = {
+  subcommandHintWithoutChildren:
+    "CLI subcommand hint requires at least one child command",
+} as const;
+
+const EMPTY_CLI_GROUP_HELP: CliGroupHelp = {
+  subcommandHint: null,
+  examples: [],
+};
 
 type CompiledCliNode = {
   readonly path: readonly string[];
@@ -115,6 +156,11 @@ function compileCliTree(tree: EntryTreeDefinition): CompiledCliNode {
       const compiled = publicNodes.get(child);
       return compiled ? [compiled] : [];
     });
+    if (record.segment.help.subcommandHint !== null && children.length === 0) {
+      issues.push(
+        `${formatTreePath(record.path)}: ${CLI_TREE_VALIDATION_ISSUE.subcommandHintWithoutChildren}`,
+      );
+    }
     if (
       record.endpoint === null &&
       children.length === 0 &&
@@ -176,17 +222,23 @@ function cliSegmentFor(
   const override = node.segments.find((row) => row.channel === CHANNEL.cli);
   let segment: CliSegment;
   if (!override) {
-    segment = { token: node.name, aliases: [] };
+    segment = { token: node.name, aliases: [], help: EMPTY_CLI_GROUP_HELP };
   } else if (!isCliSegment(override.segment)) {
     issues.push(`${formatTreePath(path)}: invalid CLI segment override`);
-    segment = { token: node.name, aliases: [] };
+    segment = { token: node.name, aliases: [], help: EMPTY_CLI_GROUP_HELP };
   } else {
     segment = override.segment;
   }
+  validateCliHelpExamples(segment.help.examples, formatTreePath(path), issues);
   if (!root) {
-    validateCliCommandToken(segment.token, "token", path, issues);
+    validateCliCommandToken(
+      segment.token,
+      CLI_SEGMENT_NAME_KIND.token,
+      path,
+      issues,
+    );
     for (const alias of segment.aliases) {
-      validateCliCommandToken(alias, "alias", path, issues);
+      validateCliCommandToken(alias, CLI_SEGMENT_NAME_KIND.alias, path, issues);
     }
   }
   return segment;
@@ -194,7 +246,7 @@ function cliSegmentFor(
 
 function validateCliCommandToken(
   token: string,
-  kind: "token" | "alias",
+  kind: (typeof CLI_SEGMENT_NAME_KIND)[keyof typeof CLI_SEGMENT_NAME_KIND],
   path: readonly string[],
   issues: string[],
 ): void {
@@ -204,7 +256,7 @@ function validateCliCommandToken(
     );
     return;
   }
-  if (token === CLI_POSITIONAL_SEPARATOR || token.startsWith("-")) {
+  if (classifyCliArgumentToken(token) !== CLI_ARGUMENT_TOKEN_KIND.value) {
     issues.push(
       `${formatTreePath(path)}: CLI segment ${kind} ${JSON.stringify(token)} is unreachable`,
     );
@@ -231,7 +283,15 @@ function cliEndpointFor(
     issues.push(`${formatTreePath(path)}: invalid CLI endpoint binding`);
     return null;
   }
-  return compileCliBinding(endpoint, channelBinding.binding, path, issues);
+  const location = `${formatTreePath(path)}#${endpoint.entry.name}`;
+  const compiled = compileCliBinding(
+    endpoint,
+    channelBinding.binding,
+    location,
+    issues,
+  );
+  validateCliCommandHelp(compiled, location, issues);
+  return compiled;
 }
 
 function validateCliChildren(
@@ -262,7 +322,10 @@ function resolveCli(
   let index = 0;
   while (index < argv.length) {
     const token = argv[index];
-    if (!token || token === CLI_POSITIONAL_SEPARATOR || token.startsWith("-")) {
+    if (token === undefined) {
+      break;
+    }
+    if (classifyCliArgumentToken(token) !== CLI_ARGUMENT_TOKEN_KIND.value) {
       break;
     }
     const child = node.childByToken.get(token);
@@ -278,8 +341,7 @@ function resolveCli(
     node.endpoint !== null &&
     node.childByToken.size > 0 &&
     unmatchedToken !== undefined &&
-    unmatchedToken !== CLI_POSITIONAL_SEPARATOR &&
-    !unmatchedToken.startsWith("-")
+    classifyCliArgumentToken(unmatchedToken) === CLI_ARGUMENT_TOKEN_KIND.value
   ) {
     return {
       kind: CLI_ROUTER_RESULT_KIND.unknownCommand,
@@ -298,8 +360,12 @@ function resolveCli(
   }
   const compiledEndpoint = node.endpoint;
   const rawResult = parseCliArguments(compiledEndpoint, argv.slice(index));
-  if (rawResult.kind === CLI_ROUTER_RESULT_KIND.invalidInput) {
-    return { ...rawResult, path: node.path };
+  switch (rawResult.kind) {
+    case CLI_ROUTER_RESULT_KIND.invalidInput:
+    case CLI_ROUTER_RESULT_KIND.invalidParameter:
+      return { ...rawResult, path: node.path };
+    case CLI_PARSE_RESULT_KIND.raw:
+      break;
   }
   const endpoint = compiledEndpoint.endpoint;
   const decoded = decodeEntryInput({
@@ -327,6 +393,12 @@ function resolveCli(
       return {
         kind: CLI_ROUTER_RESULT_KIND.invalidInput,
         path: node.path,
+        issues: decoded.issues,
+      };
+    case ENTRY_DECODE_RESULT_KIND.invalidParameter:
+      return {
+        kind: CLI_ROUTER_RESULT_KIND.invalidParameter,
+        path: node.path,
         parameterName: decoded.parameterName,
         issues: decoded.issues,
       };
@@ -339,20 +411,33 @@ function resolveCli(
   }
 }
 
-function cliCoercionFor(endpoint: CompiledCliEndpoint, parameterName: string) {
-  return [...endpoint.options, ...endpoint.positionals].find(
-    (binding) => binding.parameter.name === parameterName,
-  )?.coercion;
+function cliCoercionFor(
+  endpoint: CompiledCliEndpoint,
+  parameterName: string,
+): CliValueCoercion | null {
+  return (
+    [...endpoint.options, ...endpoint.positionals].find(
+      (binding) => binding.parameter.name === parameterName,
+    )?.coercion ?? null
+  );
 }
 
-type InvalidCliResult = {
-  readonly kind: typeof CLI_ROUTER_RESULT_KIND.invalidInput;
-  readonly parameterName: string | null;
-  readonly issues: readonly string[];
-};
+type InvalidCliResult =
+  | {
+      readonly kind: typeof CLI_ROUTER_RESULT_KIND.invalidInput;
+      readonly issues: readonly string[];
+    }
+  | {
+      readonly kind: typeof CLI_ROUTER_RESULT_KIND.invalidParameter;
+      readonly parameterName: string;
+      readonly issues: readonly string[];
+    };
 
 type RawCliResult =
-  | { readonly kind: "raw"; readonly raw: RawValueMap }
+  | {
+      readonly kind: typeof CLI_PARSE_RESULT_KIND.raw;
+      readonly raw: RawValueMap;
+    }
   | InvalidCliResult;
 
 function parseCliArguments(
@@ -367,19 +452,27 @@ function parseCliArguments(
     if (token === undefined) {
       continue;
     }
-    if (!positionalOnly && token === CLI_POSITIONAL_SEPARATOR) {
-      positionalOnly = true;
-      continue;
-    }
-    if (!positionalOnly && token.startsWith("-")) {
-      const parsed = parseCliOption({ endpoint, argv, index, raw });
-      if (parsed.kind === CLI_ROUTER_RESULT_KIND.invalidInput) {
-        return parsed;
+    if (!positionalOnly) {
+      switch (classifyCliArgumentToken(token)) {
+        case CLI_ARGUMENT_TOKEN_KIND.positionalSeparator:
+          positionalOnly = true;
+          continue;
+        case CLI_ARGUMENT_TOKEN_KIND.option: {
+          const parsed = parseCliOption({ endpoint, argv, index, raw });
+          switch (parsed.kind) {
+            case CLI_ROUTER_RESULT_KIND.invalidInput:
+            case CLI_ROUTER_RESULT_KIND.invalidParameter:
+              return parsed;
+            case CLI_PARSE_RESULT_KIND.parsed:
+              if (parsed.consumedNext) {
+                index += 1;
+              }
+          }
+          continue;
+        }
+        case CLI_ARGUMENT_TOKEN_KIND.value:
+          break;
       }
-      if (parsed.consumedNext) {
-        index += 1;
-      }
-      continue;
     }
     positionalValues.push(token);
   }
@@ -392,13 +485,16 @@ function parseCliOption(input: {
   readonly index: number;
   readonly raw: Map<string, unknown>;
 }):
-  | { readonly kind: "parsed"; readonly consumedNext: boolean }
+  | {
+      readonly kind: typeof CLI_PARSE_RESULT_KIND.parsed;
+      readonly consumedNext: boolean;
+    }
   | InvalidCliResult {
   const token = input.argv[input.index] ?? "";
   const [flag, inlineValue] = splitOptionToken(token);
   const action = input.endpoint.optionByToken.get(flag);
   if (!action) {
-    return invalidCliInput(null, `Unknown option ${flag}`);
+    return invalidCliInput(`Unknown option ${flag}`);
   }
   if (action.kind === CLI_OPTION_ACTION_KIND.setBoolean) {
     return setCliBooleanValue(input.raw, action, flag, inlineValue);
@@ -406,28 +502,40 @@ function parseCliOption(input: {
   const option = action.option;
   const value = inlineValue ?? input.argv[input.index + 1];
   if (value === undefined) {
-    return invalidCliInput(option.parameter.name, `${flag} requires a value`);
+    return invalidCliParameter(
+      option.parameter.name,
+      `${flag} requires a value`,
+    );
   }
   storeOptionValue(input.raw, option, value);
-  return { kind: "parsed", consumedNext: inlineValue === undefined };
+  return {
+    kind: CLI_PARSE_RESULT_KIND.parsed,
+    consumedNext: inlineValue === undefined,
+  };
 }
 
 function setCliBooleanValue(
   raw: Map<string, unknown>,
-  action: Extract<CliOptionAction, { readonly kind: "set_boolean" }>,
+  action: Extract<
+    CliOptionAction,
+    { readonly kind: typeof CLI_OPTION_ACTION_KIND.setBoolean }
+  >,
   flag: string,
   inlineValue: string | undefined,
 ):
-  | { readonly kind: "parsed"; readonly consumedNext: false }
+  | {
+      readonly kind: typeof CLI_PARSE_RESULT_KIND.parsed;
+      readonly consumedNext: false;
+    }
   | InvalidCliResult {
   if (inlineValue !== undefined) {
-    return invalidCliInput(
+    return invalidCliParameter(
       action.parameterName,
       `${flag} does not take a value`,
     );
   }
   raw.set(action.parameterName, action.value);
-  return { kind: "parsed", consumedNext: false };
+  return { kind: CLI_PARSE_RESULT_KIND.parsed, consumedNext: false };
 }
 
 function bindCliPositionals(
@@ -453,124 +561,81 @@ function bindCliPositionals(
   }
   if (positionalIndex < positionalValues.length) {
     return invalidCliInput(
-      null,
       `Unexpected argument ${positionalValues[positionalIndex]}`,
     );
   }
-  return { kind: "raw", raw: Object.fromEntries(raw) };
+  return { kind: CLI_PARSE_RESULT_KIND.raw, raw: Object.fromEntries(raw) };
 }
 
 function storeOptionValue(
   raw: Map<string, unknown>,
-  option: Extract<CompiledCliOption, { readonly kind: "value" }>,
+  option: Extract<
+    CompiledCliOption,
+    { readonly kind: typeof CLI_OPTION_KIND.value }
+  >,
   value: string,
 ): void {
-  if (option.valueMode === CLI_OPTION_VALUE_MODE.replace) {
-    raw.set(option.parameter.name, value);
-    return;
+  switch (option.valueMode) {
+    case CLI_OPTION_VALUE_MODE.replace:
+      raw.set(option.parameter.name, value);
+      return;
+    case CLI_OPTION_VALUE_MODE.repeat:
+      appendOptionValues(raw, option.parameter.name, [value]);
+      return;
+    case CLI_OPTION_VALUE_MODE.commaOrRepeat:
+      appendOptionValues(
+        raw,
+        option.parameter.name,
+        value.split(CLI_ARGUMENT_SYNTAX.repeatedValueSeparator),
+      );
+      return;
   }
-  const nextValues =
-    option.valueMode === CLI_OPTION_VALUE_MODE.commaOrRepeat
-      ? value.split(",")
-      : [value];
-  const current = raw.get(option.parameter.name);
+}
+
+function appendOptionValues(
+  raw: Map<string, unknown>,
+  parameterName: string,
+  values: readonly string[],
+): void {
+  const current = raw.get(parameterName);
   raw.set(
-    option.parameter.name,
-    Array.isArray(current) ? [...current, ...nextValues] : nextValues,
-  );
-}
-
-function isCliSegment(value: unknown): value is CliSegment {
-  if (
-    !isObject(value) ||
-    !("token" in value) ||
-    typeof value.token !== "string"
-  ) {
-    return false;
-  }
-  if (!("aliases" in value)) {
-    return false;
-  }
-  const aliases = value.aliases;
-  return (
-    Array.isArray(aliases) &&
-    aliases.every((alias) => typeof alias === "string")
-  );
-}
-
-function isCliEntryBinding(value: unknown): value is CliEntryBinding {
-  if (
-    !isObject(value) ||
-    !("parameters" in value) ||
-    !Array.isArray(value.parameters)
-  ) {
-    return false;
-  }
-  return value.parameters.every(isCliArgBinding);
-}
-
-function isCliArgBinding(value: unknown): value is CliArgBinding {
-  if (
-    !isObject(value) ||
-    !("parameterName" in value) ||
-    typeof value.parameterName !== "string" ||
-    !("kind" in value)
-  ) {
-    return false;
-  }
-  if (value.kind === CLI_ARG_KIND.option) {
-    return (
-      (!("flags" in value) ||
-        value.flags === undefined ||
-        (Array.isArray(value.flags) &&
-          value.flags.every((flag) => typeof flag === "string"))) &&
-      (!("valueName" in value) ||
-        value.valueName === undefined ||
-        typeof value.valueName === "string") &&
-      hasValidCliCoercion(value)
-    );
-  }
-  return (
-    value.kind === CLI_ARG_KIND.positional &&
-    (!("valueName" in value) ||
-      value.valueName === undefined ||
-      typeof value.valueName === "string") &&
-    hasValidCliCoercion(value) &&
-    (!("variadic" in value) ||
-      value.variadic === undefined ||
-      typeof value.variadic === "boolean")
-  );
-}
-
-function hasValidCliCoercion(value: object): boolean {
-  return (
-    !("coercion" in value) ||
-    value.coercion === undefined ||
-    value.coercion === "json" ||
-    value.coercion === "json_or_string"
+    parameterName,
+    Array.isArray(current) ? [...current, ...values] : values,
   );
 }
 
 function splitOptionToken(
   token: string,
 ): readonly [string, string | undefined] {
-  const equalsIndex = token.indexOf("=");
+  const equalsIndex = token.indexOf(CLI_ARGUMENT_SYNTAX.inlineValueSeparator);
   return equalsIndex < 0
     ? [token, undefined]
     : [token.slice(0, equalsIndex), token.slice(equalsIndex + 1)];
 }
 
-function invalidCliInput(
-  parameterName: string | null,
-  issue: string,
-): InvalidCliResult {
+function classifyCliArgumentToken(token: string): CliArgumentTokenKind {
+  if (token === CLI_ARGUMENT_SYNTAX.positionalSeparator) {
+    return CLI_ARGUMENT_TOKEN_KIND.positionalSeparator;
+  }
+  return token.startsWith(CLI_ARGUMENT_SYNTAX.optionPrefix)
+    ? CLI_ARGUMENT_TOKEN_KIND.option
+    : CLI_ARGUMENT_TOKEN_KIND.value;
+}
+
+function invalidCliInput(issue: string): InvalidCliResult {
   return {
     kind: CLI_ROUTER_RESULT_KIND.invalidInput,
-    parameterName,
     issues: [issue],
   };
 }
 
-function isObject(value: unknown): value is object {
-  return typeof value === "object" && value !== null;
+function invalidCliParameter(
+  parameterName: string,
+  issue: string,
+): InvalidCliResult {
+  return {
+    kind: CLI_ROUTER_RESULT_KIND.invalidParameter,
+    parameterName,
+    issues: [issue],
+  };
 }

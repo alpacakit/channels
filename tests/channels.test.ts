@@ -1,15 +1,15 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
-  createOutputContract,
   codecs,
+  createOutputContract,
   defineEntry,
   defineEntryEndpoint,
   defineParameter,
+  ENTRY_DECODE_RESULT_KIND,
   type EntryDefinitionWithOutput,
   EntryInputError,
   EntryOutputContractError,
-  ENTRY_DECODE_RESULT_KIND,
   optional,
   requireEntryOutput,
   verifyEntryOutput,
@@ -186,7 +186,7 @@ describe("@alpacaloop/channels MCP binding", () => {
     const endpoint = defineEntryEndpoint(entry, bindMcpEntry("count"));
 
     expect(createMcpEndpoint(endpoint).parse({})).toMatchObject({
-      kind: ENTRY_DECODE_RESULT_KIND.invalidInput,
+      kind: ENTRY_DECODE_RESULT_KIND.invalidParameter,
       parameterName: "count",
     });
   });

@@ -1,6 +1,7 @@
 import type { JsonValue } from "@alpacaloop/core";
 import type {
   ChannelSegmentOverride,
+  CommandDocumentation,
   EntryChannelBinding,
   EntryDefinition,
   EntryDefinitionWithOutput,
@@ -12,6 +13,15 @@ import type {
 import { EntryTreeDefinitionError } from "./schema.js";
 import type { Channel } from "./values.js";
 
+const ENTRY_TREE_MERGE_ISSUE = {
+  conflictingDocumentation: "conflicting node documentation",
+} as const;
+
+const EMPTY_COMMAND_DOCUMENTATION: CommandDocumentation = {
+  remarks: [],
+  relatedDocs: [],
+};
+
 export function defineEntryTree(root: EntryTreeNode): EntryTreeDefinition {
   return { root } as EntryTreeDefinition;
 }
@@ -19,6 +29,7 @@ export function defineEntryTree(root: EntryTreeNode): EntryTreeDefinition {
 export function defineEntryNode(input: {
   readonly name: string;
   readonly description: string;
+  readonly documentation?: CommandDocumentation;
   readonly segments?: readonly ChannelSegmentOverride[];
   readonly endpoints?: readonly EntryTreeEndpoint[];
   readonly children?: readonly EntryTreeNode[];
@@ -26,6 +37,7 @@ export function defineEntryNode(input: {
   return {
     name: input.name,
     description: input.description,
+    documentation: input.documentation ?? EMPTY_COMMAND_DOCUMENTATION,
     segments: input.segments ?? [],
     endpoints: input.endpoints ?? [],
     children: input.children ?? [],
@@ -54,6 +66,19 @@ export function mergeEntryTreeNodes(
         .slice(1)
         .filter((node) => node.description !== first.description)
         .map(() => `${item.frame.path}: conflicting node descriptions`);
+      issues.push(
+        ...item.frame.nodes
+          .slice(1)
+          .filter(
+            (node) =>
+              JSON.stringify(node.documentation) !==
+              JSON.stringify(first.documentation),
+          )
+          .map(
+            () =>
+              `${item.frame.path}: ${ENTRY_TREE_MERGE_ISSUE.conflictingDocumentation}`,
+          ),
+      );
       item.frame.segments = mergeSegments(
         item.frame.nodes,
         item.frame.path,
@@ -84,6 +109,7 @@ export function mergeEntryTreeNodes(
       defineEntryNode({
         name: first.name,
         description: first.description,
+        documentation: first.documentation,
         segments,
         endpoints: [
           ...new Set(item.frame.nodes.flatMap((node) => node.endpoints)),

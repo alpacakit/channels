@@ -198,9 +198,15 @@ export type EntryTreeDefinition = {
   readonly [EntryTreeDefinitionBrand]: true;
 };
 
+export type CommandDocumentation = {
+  readonly remarks: readonly string[];
+  readonly relatedDocs: readonly string[];
+};
+
 export type EntryTreeNode = {
   readonly name: string;
   readonly description: string;
+  readonly documentation: CommandDocumentation;
   readonly segments: readonly ChannelSegmentOverride[];
   readonly endpoints: readonly EntryTreeEndpoint[];
   readonly children: readonly EntryTreeNode[];

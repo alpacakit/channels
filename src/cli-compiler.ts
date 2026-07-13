@@ -6,61 +6,51 @@ import {
 } from "./binding-compiler.js";
 import {
   CLI_ARG_KIND,
-  CLI_REPEAT_MODE,
   type CliArgBinding,
   type CliEntryBinding,
-  type CliHelpOption,
-  type CliHelpSurface,
-  type CliSegment,
+  type CliLongOptionFlag,
+  type CliOptionFlag,
+  type CliOptionValueMode,
   type CliValueCoercion,
 } from "./cli-model.js";
-import { CLI_BOOLEAN_MODE } from "./cli-values.js";
-import type {
-  ErasedParameterDefinition,
-  EntryTreeEndpoint,
-  EntryTreeNode,
-} from "./model.js";
-import { formatTreePath } from "./schema.js";
-import { PARAMETER_PRESENCE, VALUE_SHAPE_KIND } from "./values.js";
-
-export const CLI_OPTION_PLAN_KIND = {
-  booleanFlag: "boolean_flag",
-  value: "value",
-} as const;
-
-export const CLI_OPTION_VALUE_MODE = {
-  replace: "replace",
-  repeat: "repeat",
-  commaOrRepeat: "comma_or_repeat",
-} as const;
+import {
+  CLI_BOOLEAN_MODE,
+  CLI_OPTION_KIND,
+  CLI_OPTION_VALUE_MODE,
+  CLI_POSITIONAL_PLAN_KIND,
+} from "./cli-values.js";
+import type { EntryTreeEndpoint, ErasedParameterDefinition } from "./model.js";
+import { VALUE_SHAPE_KIND } from "./values.js";
 
 export const CLI_OPTION_ACTION_KIND = {
   setBoolean: "set_boolean",
   readValue: "read_value",
 } as const;
 
-export const CLI_POSITIONAL_PLAN_KIND = {
-  single: "single",
-  rest: "rest",
+const CLI_COMPILER_SYNTAX = {
+  assignmentSeparator: "=",
+  invalidLongOptionPrefix: "---",
+  longOptionPrefix: "--",
+  negatedLongOptionPrefix: "--no-",
+  optionPrefix: "-",
+  parameterWordSeparator: "-",
+  valueWordSeparator: "_",
 } as const;
 
 type CompiledCliOptionBase = {
   readonly parameter: ErasedParameterDefinition;
-  readonly flags: readonly string[];
-  readonly coercion: CliValueCoercion | undefined;
+  readonly flags: readonly CliOptionFlag[];
+  readonly coercion: CliValueCoercion | null;
 };
 
 export type CompiledCliOption =
   | (CompiledCliOptionBase & {
-      readonly kind: typeof CLI_OPTION_PLAN_KIND.booleanFlag;
-      readonly negativeFlags: readonly string[];
+      readonly kind: typeof CLI_OPTION_KIND.booleanFlag;
+      readonly negativeFlags: readonly CliLongOptionFlag[];
     })
   | (CompiledCliOptionBase & {
-      readonly kind: typeof CLI_OPTION_PLAN_KIND.value;
-      readonly valueMode:
-        | typeof CLI_OPTION_VALUE_MODE.replace
-        | typeof CLI_OPTION_VALUE_MODE.repeat
-        | typeof CLI_OPTION_VALUE_MODE.commaOrRepeat;
+      readonly kind: typeof CLI_OPTION_KIND.value;
+      readonly valueMode: CliOptionValueMode;
       readonly valueName: string;
     });
 
@@ -70,7 +60,7 @@ export type CompiledCliPositional = {
     | typeof CLI_POSITIONAL_PLAN_KIND.rest;
   readonly parameter: ErasedParameterDefinition;
   readonly valueName: string;
-  readonly coercion: CliValueCoercion | undefined;
+  readonly coercion: CliValueCoercion | null;
 };
 
 export type CliOptionAction =
@@ -83,12 +73,13 @@ export type CliOptionAction =
       readonly kind: typeof CLI_OPTION_ACTION_KIND.readValue;
       readonly option: Extract<
         CompiledCliOption,
-        { readonly kind: typeof CLI_OPTION_PLAN_KIND.value }
+        { readonly kind: typeof CLI_OPTION_KIND.value }
       >;
     };
 
 export type CompiledCliEndpoint = {
   readonly endpoint: EntryTreeEndpoint;
+  readonly help: CliEntryBinding["help"];
   readonly options: readonly CompiledCliOption[];
   readonly positionals: readonly CompiledCliPositional[];
   readonly optionByToken: ReadonlyMap<string, CliOptionAction>;
@@ -97,10 +88,9 @@ export type CompiledCliEndpoint = {
 export function compileCliBinding(
   endpoint: EntryTreeEndpoint,
   binding: CliEntryBinding,
-  path: readonly string[],
+  location: string,
   issues: string[],
 ): CompiledCliEndpoint {
-  const location = `${formatTreePath(path)}#${endpoint.entry.name}`;
   const compiledParameters = compileParameterBindings(
     endpoint.entry,
     binding.parameters,
@@ -143,6 +133,7 @@ export function compileCliBinding(
   }
   return {
     endpoint,
+    help: binding.help,
     options,
     positionals,
     optionByToken: createCliOptionActionIndex(options, location, issues),
@@ -151,7 +142,7 @@ export function compileCliBinding(
 
 function compileCliOption(
   compiled: CompiledParameterBinding<
-    Extract<CliArgBinding, { readonly kind: "option" }>
+    Extract<CliArgBinding, { readonly kind: typeof CLI_ARG_KIND.option }>
   >,
   location: string,
   issues: string[],
@@ -179,13 +170,13 @@ function compileCliOption(
     case VALUE_SHAPE_KIND.array:
       rejectBooleanChoices(row, location, issues);
       return {
-        kind: CLI_OPTION_PLAN_KIND.value,
+        kind: CLI_OPTION_KIND.value,
         parameter,
         flags,
-        coercion: row.coercion,
+        coercion: row.coercion ?? null,
         valueName: row.valueName ?? defaultCliValueName(parameter.name),
         valueMode:
-          row.repeatMode === CLI_REPEAT_MODE.commaOrRepeat
+          row.repeatMode === CLI_OPTION_VALUE_MODE.commaOrRepeat
             ? CLI_OPTION_VALUE_MODE.commaOrRepeat
             : CLI_OPTION_VALUE_MODE.repeat,
       };
@@ -199,10 +190,10 @@ function compileCliOption(
         );
       }
       return {
-        kind: CLI_OPTION_PLAN_KIND.value,
+        kind: CLI_OPTION_KIND.value,
         parameter,
         flags,
-        coercion: row.coercion,
+        coercion: row.coercion ?? null,
         valueName: row.valueName ?? defaultCliValueName(parameter.name),
         valueMode: CLI_OPTION_VALUE_MODE.replace,
       };
@@ -211,35 +202,41 @@ function compileCliOption(
 
 function isReachableCliOptionFlag(flag: string): boolean {
   return (
-    flag.startsWith("-") &&
-    flag !== "-" &&
-    flag !== "--" &&
-    !flag.startsWith("---") &&
-    !flag.includes("=") &&
+    flag.startsWith(CLI_COMPILER_SYNTAX.optionPrefix) &&
+    flag !== CLI_COMPILER_SYNTAX.optionPrefix &&
+    flag !== CLI_COMPILER_SYNTAX.longOptionPrefix &&
+    !flag.startsWith(CLI_COMPILER_SYNTAX.invalidLongOptionPrefix) &&
+    !flag.includes(CLI_COMPILER_SYNTAX.assignmentSeparator) &&
     !/\s/.test(flag)
   );
 }
 
 function toKebabCase(name: string): string {
   return name
-    .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
-    .replace(/_/g, "-")
+    .replace(
+      /[A-Z]/g,
+      (letter) =>
+        `${CLI_COMPILER_SYNTAX.parameterWordSeparator}${letter.toLowerCase()}`,
+    )
+    .replace(/_/g, CLI_COMPILER_SYNTAX.parameterWordSeparator)
     .replace(/^-/, "");
 }
 
-function defaultCliOptionFlag(parameterName: string): string {
-  return `--${toKebabCase(parameterName)}`;
+function defaultCliOptionFlag(parameterName: string): CliLongOptionFlag {
+  return `${CLI_COMPILER_SYNTAX.longOptionPrefix}${toKebabCase(parameterName)}`;
 }
 
 function defaultCliValueName(parameterName: string): string {
-  return toKebabCase(parameterName).replace(/-/g, "_").toUpperCase();
+  return toKebabCase(parameterName)
+    .replace(/-/g, CLI_COMPILER_SYNTAX.valueWordSeparator)
+    .toUpperCase();
 }
 
 function compileCliBooleanOption(
   compiled: CompiledParameterBinding<
-    Extract<CliArgBinding, { readonly kind: "option" }>
+    Extract<CliArgBinding, { readonly kind: typeof CLI_ARG_KIND.option }>
   >,
-  flags: readonly string[],
+  flags: readonly CliOptionFlag[],
   location: string,
   issues: string[],
 ): CompiledCliOption {
@@ -261,10 +258,10 @@ function compileCliBooleanOption(
       );
     }
     return {
-      kind: CLI_OPTION_PLAN_KIND.value,
+      kind: CLI_OPTION_KIND.value,
       parameter,
       flags,
-      coercion: row.coercion,
+      coercion: row.coercion ?? null,
       valueName: row.valueName ?? defaultCliValueName(parameter.name),
       valueMode: CLI_OPTION_VALUE_MODE.replace,
     };
@@ -280,9 +277,7 @@ function compileCliBooleanOption(
     );
   }
   const negativeFlags = row.negated
-    ? flags
-        .filter((flag) => flag.startsWith("--"))
-        .map((flag) => `--no-${flag.slice(2)}`)
+    ? flags.filter(isCliLongOptionFlag).map(negateCliLongOptionFlag)
     : [];
   if (row.negated && negativeFlags.length === 0) {
     issues.push(
@@ -290,16 +285,24 @@ function compileCliBooleanOption(
     );
   }
   return {
-    kind: CLI_OPTION_PLAN_KIND.booleanFlag,
+    kind: CLI_OPTION_KIND.booleanFlag,
     parameter,
     flags,
-    coercion: undefined,
+    coercion: null,
     negativeFlags,
   };
 }
 
+function isCliLongOptionFlag(flag: CliOptionFlag): flag is CliLongOptionFlag {
+  return flag.startsWith(CLI_COMPILER_SYNTAX.longOptionPrefix);
+}
+
+function negateCliLongOptionFlag(flag: CliLongOptionFlag): CliLongOptionFlag {
+  return `${CLI_COMPILER_SYNTAX.negatedLongOptionPrefix}${flag.slice(CLI_COMPILER_SYNTAX.longOptionPrefix.length)}`;
+}
+
 function rejectBooleanChoices(
-  row: Extract<CliArgBinding, { readonly kind: "option" }>,
+  row: Extract<CliArgBinding, { readonly kind: typeof CLI_ARG_KIND.option }>,
   location: string,
   issues: string[],
 ): void {
@@ -317,7 +320,7 @@ function rejectBooleanChoices(
 
 function compileCliPositional(
   compiled: CompiledParameterBinding<
-    Extract<CliArgBinding, { readonly kind: "positional" }>
+    Extract<CliArgBinding, { readonly kind: typeof CLI_ARG_KIND.positional }>
   >,
   location: string,
   issues: string[],
@@ -341,7 +344,7 @@ function compileCliPositional(
       : CLI_POSITIONAL_PLAN_KIND.single,
     parameter,
     valueName,
-    coercion: row.coercion,
+    coercion: row.coercion ?? null,
   };
 }
 
@@ -352,7 +355,7 @@ function createCliOptionActionIndex(
 ): ReadonlyMap<string, CliOptionAction> {
   const actions = new Map<string, CliOptionAction>();
   for (const option of options) {
-    if (option.kind === CLI_OPTION_PLAN_KIND.booleanFlag) {
+    if (option.kind === CLI_OPTION_KIND.booleanFlag) {
       for (const token of option.flags) {
         registerCliOptionAction(
           actions,
@@ -419,69 +422,5 @@ function formatCliParameterBindingIssue(
       return `${location}: binding names nonexistent parameter ${issue.parameterName}`;
     case PARAMETER_BINDING_ISSUE_KIND.requiredUnreachable:
       return `${location}: required parameter ${issue.parameterName} is unreachable from CLI`;
-  }
-}
-
-export function createCliHelpSurface(input: {
-  readonly node: EntryTreeNode;
-  readonly segment: CliSegment;
-  readonly endpoint: CompiledCliEndpoint | null;
-  readonly childHelp: readonly CliHelpSurface[];
-  readonly root: boolean;
-}): CliHelpSurface {
-  return {
-    name: input.node.name,
-    token: input.root ? null : input.segment.token,
-    aliases: input.root ? [] : input.segment.aliases,
-    description: input.node.description,
-    executable: input.endpoint !== null,
-    options: (input.endpoint?.options ?? []).map(cliHelpOptionFor),
-    positionals: (input.endpoint?.positionals ?? []).map((positional) => ({
-      parameterName: positional.parameter.name,
-      valueName: positional.valueName,
-      description: positional.parameter.description,
-      required:
-        positional.parameter.requirement.presence ===
-        PARAMETER_PRESENCE.required,
-      variadic: positional.kind === CLI_POSITIONAL_PLAN_KIND.rest,
-      defaultValue: positional.parameter.requirement.defaultValue,
-    })),
-    children: input.childHelp,
-  };
-}
-
-function cliHelpOptionFor(option: CompiledCliOption): CliHelpOption {
-  const booleanFlag = option.kind === CLI_OPTION_PLAN_KIND.booleanFlag;
-  return {
-    parameterName: option.parameter.name,
-    flags: option.flags,
-    valueName: booleanFlag ? null : option.valueName,
-    description: option.parameter.description,
-    required:
-      option.parameter.requirement.presence === PARAMETER_PRESENCE.required,
-    booleanMode: booleanFlag
-      ? CLI_BOOLEAN_MODE.flag
-      : option.parameter.codec.shape.kind === VALUE_SHAPE_KIND.boolean
-        ? CLI_BOOLEAN_MODE.value
-        : null,
-    negativeFlags: booleanFlag ? option.negativeFlags : [],
-    repeatMode: cliHelpRepeatMode(option),
-    defaultValue: option.parameter.requirement.defaultValue,
-  };
-}
-
-function cliHelpRepeatMode(
-  option: CompiledCliOption,
-): CliHelpOption["repeatMode"] {
-  if (option.kind === CLI_OPTION_PLAN_KIND.booleanFlag) {
-    return null;
-  }
-  switch (option.valueMode) {
-    case CLI_OPTION_VALUE_MODE.replace:
-      return null;
-    case CLI_OPTION_VALUE_MODE.repeat:
-      return CLI_REPEAT_MODE.repeat;
-    case CLI_OPTION_VALUE_MODE.commaOrRepeat:
-      return CLI_REPEAT_MODE.commaOrRepeat;
   }
 }

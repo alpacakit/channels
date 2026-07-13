@@ -1,14 +1,14 @@
 import type { JsonValue } from "@alpacaloop/core";
-import type { ValueShape } from "./model.js";
 import { CLI_VALUE_COERCION, type CliValueCoercion } from "./cli-model.js";
+import type { ValueShape } from "./model.js";
 import { VALUE_SHAPE_KIND } from "./values.js";
 
 export function coerceCliArgvValue(
   shape: ValueShape,
   rawValue: unknown,
-  coercion?: CliValueCoercion,
+  coercion: CliValueCoercion | null,
 ): JsonValue | undefined {
-  if (coercion !== undefined) {
+  if (coercion !== null) {
     return coerceExplicitCliValue(rawValue, coercion);
   }
   if (shape.kind === VALUE_SHAPE_KIND.array) {

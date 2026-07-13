@@ -10,6 +10,12 @@ export const PARAMETER_PRESENCE = {
   optional: "optional",
 } as const;
 
+export const PARAMETER_REQUIREMENT_KIND = {
+  required: "required",
+  optional: "optional",
+  optionalWithDefault: "optional_with_default",
+} as const;
+
 export const VALUE_SHAPE_KIND = {
   string: "string",
   boolean: "boolean",
@@ -21,5 +27,16 @@ export const VALUE_SHAPE_KIND = {
 export const ENTRY_DECODE_RESULT_KIND = {
   resolved: "resolved",
   invalidInput: "invalid_input",
+  invalidParameter: "invalid_parameter",
   internalError: "internal_error",
+} as const;
+
+export const ENTRY_INPUT_TARGET_KIND = {
+  entry: "entry",
+  parameter: "parameter",
+} as const;
+
+export const ENTRY_OUTPUT_DESCRIPTION_KIND = {
+  typed: "typed",
+  none: "none",
 } as const;

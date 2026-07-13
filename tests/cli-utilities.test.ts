@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   bindCliEntry,
   CLI_ARG_KIND,
+  CLI_OPTION_KIND,
   CLI_ROUTER_RESULT_KIND,
   CLI_VALUE_COERCION,
   CliExecutorDefinitionError,
@@ -25,6 +26,7 @@ import {
   defineEntryNode,
   defineEntryTree,
   defineParameter,
+  ENTRY_INPUT_TARGET_KIND,
   EntryInputError,
   mergeEntryTreeNodes,
   optional,
@@ -86,10 +88,10 @@ describe("CLI utility APIs", () => {
     for (const value of ["0", "-1"]) {
       const result = router.resolve(["generate", "--generation", value]);
       expect(result).toMatchObject({
-        kind: CLI_ROUTER_RESULT_KIND.invalidInput,
+        kind: CLI_ROUTER_RESULT_KIND.invalidParameter,
         parameterName: "generation",
       });
-      if (result.kind === CLI_ROUTER_RESULT_KIND.invalidInput) {
+      if (result.kind === CLI_ROUTER_RESULT_KIND.invalidParameter) {
         expect(result.issues.join(" ")).not.toContain("received string");
       }
     }
@@ -106,7 +108,11 @@ describe("CLI utility APIs", () => {
     if (!surface) {
       return;
     }
-    expect(surface.options[0]?.valueName).toBe("count");
+    const option = surface.options[0];
+    expect(option?.kind).toBe(CLI_OPTION_KIND.value);
+    if (option?.kind === CLI_OPTION_KIND.value) {
+      expect(option.valueName).toBe("count");
+    }
     expect(renderCliHelp(surface, { programName: "tool generate" })).toContain(
       "--generation <count>",
     );
@@ -170,6 +176,23 @@ describe("CLI utility APIs", () => {
       return;
     }
     expect(formatCliRouterError(result)).toContain("Unknown command");
+
+    const invalidInput = createCountRouter().resolve(["generate", "--missing"]);
+    expect(invalidInput.kind).toBe(CLI_ROUTER_RESULT_KIND.invalidInput);
+    if (invalidInput.kind === CLI_ROUTER_RESULT_KIND.invalidInput) {
+      expect(formatCliRouterError(invalidInput)).toContain("Invalid input:");
+    }
+
+    const invalidParameter = createCountRouter().resolve([
+      "generate",
+      "--generation",
+    ]);
+    expect(invalidParameter.kind).toBe(CLI_ROUTER_RESULT_KIND.invalidParameter);
+    if (invalidParameter.kind === CLI_ROUTER_RESULT_KIND.invalidParameter) {
+      expect(formatCliRouterError(invalidParameter)).toContain(
+        "Invalid generation:",
+      );
+    }
   });
 
   it("rejects a valueName on boolean flag options", () => {
@@ -316,7 +339,7 @@ describe("CLI JSON coercion", () => {
       projection: { ok: true },
     });
     expect(resolve(CLI_VALUE_COERCION.json, "plain")).toMatchObject({
-      kind: CLI_ROUTER_RESULT_KIND.invalidInput,
+      kind: CLI_ROUTER_RESULT_KIND.invalidParameter,
       parameterName: "value",
     });
   });
@@ -407,7 +430,10 @@ describe("entry tree composition and projection errors", () => {
       const entry = defineEntry({
         ...CountEntry,
         project: () => {
-          throw new EntryInputError(["invalid combination"], { parameterName });
+          throw new EntryInputError(["invalid combination"], {
+            kind: ENTRY_INPUT_TARGET_KIND.parameter,
+            parameterName,
+          });
         },
       });
       return createCliRouter(
@@ -430,7 +456,7 @@ describe("entry tree composition and projection errors", () => {
       ).resolve(["--generation", "1"]);
     };
     expect(resolve("generation")).toMatchObject({
-      kind: CLI_ROUTER_RESULT_KIND.invalidInput,
+      kind: CLI_ROUTER_RESULT_KIND.invalidParameter,
       parameterName: "generation",
     });
     expect(resolve("missing")).toMatchObject({

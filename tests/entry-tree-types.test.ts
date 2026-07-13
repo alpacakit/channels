@@ -2,22 +2,28 @@ import { describe, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
   bindCliEntry,
+  CLI_OPTION_KIND,
+  CLI_OPTION_VALUE_MODE,
+  type CLI_ROUTER_RESULT_KIND,
+  type CliHelpOption,
+  type CliRouterResult,
   createCliRouter,
   isCliResolvedEndpoint,
   overrideCliSegment,
 } from "../src/cli.js";
 import {
   codecs,
-  type EntryChannelBinding,
   defineEntry,
   defineEntryEndpoint,
   defineEntryNode,
   defineEntryTree,
   defineParameter,
+  type EntryChannelBinding,
   type EntryTreeDefinition,
   type EntryTreeEndpoint,
   type EntryTreeNode,
   optional,
+  PARAMETER_REQUIREMENT_KIND,
   required,
   VALUE_SHAPE_KIND,
   type ValueShape,
@@ -79,6 +85,13 @@ describe("entry tree builder types", () => {
       endpoints: [],
       children: [],
     }).not.toMatchTypeOf<EntryTreeNode>();
+
+    defineEntryNode({
+      name: "documented",
+      description: "Documented",
+      // @ts-expect-error documentation must be complete when supplied
+      documentation: { remarks: ["Remark"] },
+    });
 
     const result = createCliRouter(tree).resolve(["--query", "value"]);
     if (isCliResolvedEndpoint(result, endpoint)) {
@@ -183,6 +196,67 @@ describe("entry tree builder types", () => {
           flags: ["query"],
         },
       ],
+    });
+  });
+
+  it("excludes impossible CLI help option field combinations", () => {
+    const base = {
+      parameterName: "value",
+      flags: ["--value"] as const,
+      description: "Value",
+      requirement: { kind: PARAMETER_REQUIREMENT_KIND.required },
+    };
+    const booleanFlag = {
+      ...base,
+      kind: CLI_OPTION_KIND.booleanFlag,
+      negativeFlags: ["--no-value"],
+    } satisfies CliHelpOption;
+    const value = {
+      ...base,
+      kind: CLI_OPTION_KIND.value,
+      valueName: "VALUE",
+      valueMode: CLI_OPTION_VALUE_MODE.replace,
+    } satisfies CliHelpOption;
+
+    expectTypeOf(booleanFlag).not.toHaveProperty("valueName");
+    expectTypeOf(booleanFlag).not.toHaveProperty("valueMode");
+    expectTypeOf(value).not.toHaveProperty("negativeFlags");
+
+    const invalidBooleanFlag: CliHelpOption = {
+      ...booleanFlag,
+      // @ts-expect-error boolean flags never carry value-mode fields
+      valueName: "VALUE",
+    };
+    const invalidValue: CliHelpOption = {
+      ...value,
+      // @ts-expect-error value options never carry generated negative flags
+      negativeFlags: [],
+    };
+    void invalidBooleanFlag;
+    void invalidValue;
+  });
+
+  it("separates general and parameter CLI input failures", () => {
+    type InvalidInput = Extract<
+      CliRouterResult,
+      { readonly kind: typeof CLI_ROUTER_RESULT_KIND.invalidInput }
+    >;
+    type InvalidParameter = Extract<
+      CliRouterResult,
+      { readonly kind: typeof CLI_ROUTER_RESULT_KIND.invalidParameter }
+    >;
+
+    expectTypeOf<InvalidInput>().not.toHaveProperty("parameterName");
+    expectTypeOf<InvalidParameter["parameterName"]>().toEqualTypeOf<string>();
+  });
+
+  it("requires authored CLI usage overrides to be non-empty", () => {
+    bindCliEntry({
+      parameters: [],
+      help: {
+        // @ts-expect-error an empty list means neither authored nor derived usage
+        usages: [],
+      },
     });
   });
 

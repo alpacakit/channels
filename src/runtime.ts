@@ -1,24 +1,36 @@
 import { CODEC_DECODE_RESULT_KIND, type JsonValue } from "@alpacaloop/core";
 import { findParameter } from "./internal.js";
 import type {
-  ErasedParameterDefinition,
   ErasedEntryDefinition,
+  ErasedParameterDefinition,
   ParameterSet,
   ParameterValues,
   RawValueMap,
 } from "./model.js";
-import { ENTRY_DECODE_RESULT_KIND, PARAMETER_PRESENCE } from "./values.js";
+import {
+  ENTRY_DECODE_RESULT_KIND,
+  ENTRY_INPUT_TARGET_KIND,
+  PARAMETER_PRESENCE,
+} from "./values.js";
+
+export type EntryInputTarget =
+  | { readonly kind: typeof ENTRY_INPUT_TARGET_KIND.entry }
+  | {
+      readonly kind: typeof ENTRY_INPUT_TARGET_KIND.parameter;
+      readonly parameterName: string;
+    };
+
+const ENTRY_INPUT_TARGET = {
+  kind: ENTRY_INPUT_TARGET_KIND.entry,
+} as const satisfies EntryInputTarget;
 
 export class EntryInputError extends Error {
-  readonly parameterName: string | null;
-
   constructor(
     readonly issues: readonly string[],
-    options: { readonly parameterName?: string } = {},
+    readonly target: EntryInputTarget = ENTRY_INPUT_TARGET,
   ) {
     super(issues.join("; "));
     this.name = EntryInputError.name;
-    this.parameterName = options.parameterName ?? null;
   }
 }
 
@@ -29,17 +41,17 @@ export type EntryDecodeResult<Projection> =
     }
   | {
       readonly kind: typeof ENTRY_DECODE_RESULT_KIND.invalidInput;
-      readonly parameterName: string | null;
       readonly issues: readonly string[];
     }
+  | InvalidParameterDecodeResult
   | {
       readonly kind: typeof ENTRY_DECODE_RESULT_KIND.internalError;
       readonly error: unknown;
     };
 
 type InvalidParameterDecodeResult = {
-  readonly kind: typeof ENTRY_DECODE_RESULT_KIND.invalidInput;
-  readonly parameterName: string | null;
+  readonly kind: typeof ENTRY_DECODE_RESULT_KIND.invalidParameter;
+  readonly parameterName: string;
   readonly issues: readonly string[];
 };
 
@@ -169,7 +181,7 @@ export function decodeEntryInput<
     raw: input.raw,
     ...(input.coerce ? { coerce: input.coerce } : {}),
   });
-  if (decoded.kind === ENTRY_DECODE_RESULT_KIND.invalidInput) {
+  if (decoded.kind === ENTRY_DECODE_RESULT_KIND.invalidParameter) {
     return decoded;
   }
   const project = input.entry.project as unknown as (input: {
@@ -184,19 +196,27 @@ export function decodeEntryInput<
     };
   } catch (error) {
     if (error instanceof EntryInputError) {
-      if (
-        error.parameterName !== null &&
-        !input.entry.parameters.some(
-          (parameter) => parameter.name === error.parameterName,
-        )
-      ) {
-        return { kind: ENTRY_DECODE_RESULT_KIND.internalError, error };
+      const target = error.target;
+      switch (target.kind) {
+        case ENTRY_INPUT_TARGET_KIND.entry:
+          return {
+            kind: ENTRY_DECODE_RESULT_KIND.invalidInput,
+            issues: error.issues,
+          };
+        case ENTRY_INPUT_TARGET_KIND.parameter:
+          if (
+            !input.entry.parameters.some(
+              (parameter) => parameter.name === target.parameterName,
+            )
+          ) {
+            return { kind: ENTRY_DECODE_RESULT_KIND.internalError, error };
+          }
+          return {
+            kind: ENTRY_DECODE_RESULT_KIND.invalidParameter,
+            parameterName: target.parameterName,
+            issues: error.issues,
+          };
       }
-      return {
-        kind: ENTRY_DECODE_RESULT_KIND.invalidInput,
-        parameterName: error.parameterName,
-        issues: error.issues,
-      };
     }
     return { kind: ENTRY_DECODE_RESULT_KIND.internalError, error };
   }
@@ -207,7 +227,7 @@ function invalidParameter(
   issues: readonly string[],
 ): InvalidParameterDecodeResult {
   return {
-    kind: ENTRY_DECODE_RESULT_KIND.invalidInput,
+    kind: ENTRY_DECODE_RESULT_KIND.invalidParameter,
     parameterName,
     issues,
   };
