@@ -5,11 +5,6 @@ export const CHANNEL = {
 
 export type Channel = (typeof CHANNEL)[keyof typeof CHANNEL];
 
-export const PARAMETER_PRESENCE = {
-  required: "required",
-  optional: "optional",
-} as const;
-
 export const PARAMETER_REQUIREMENT_KIND = {
   required: "required",
   optional: "optional",

@@ -21,7 +21,7 @@ import {
   defaultCliValueName,
 } from "./cli-values.js";
 import type { EntryTreeEndpoint, ErasedParameterDefinition } from "./model.js";
-import { VALUE_SHAPE_KIND } from "./values.js";
+import { PARAMETER_REQUIREMENT_KIND, VALUE_SHAPE_KIND } from "./values.js";
 
 export const CLI_OPTION_ACTION_KIND = {
   setBoolean: "set_boolean",
@@ -225,9 +225,10 @@ function compileCliBooleanOption(
   }
   const booleanMode =
     row.booleanMode ??
-    (parameter.requirement.defaultValue === undefined
-      ? CLI_BOOLEAN_MODE.value
-      : CLI_BOOLEAN_MODE.flag);
+    (parameter.requirement.kind ===
+    PARAMETER_REQUIREMENT_KIND.optionalWithDefault
+      ? CLI_BOOLEAN_MODE.flag
+      : CLI_BOOLEAN_MODE.value);
   if (booleanMode === CLI_BOOLEAN_MODE.value) {
     if (row.negated) {
       issues.push(

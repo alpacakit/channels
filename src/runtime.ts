@@ -10,7 +10,7 @@ import type {
 import {
   ENTRY_DECODE_RESULT_KIND,
   ENTRY_INPUT_TARGET_KIND,
-  PARAMETER_PRESENCE,
+  PARAMETER_REQUIREMENT_KIND,
 } from "./values.js";
 
 export type EntryInputTarget =
@@ -153,18 +153,20 @@ function resolveParameterCandidate(
   if (rawValue !== undefined) {
     return { kind: PARAMETER_CANDIDATE_KIND.raw, value: rawValue };
   }
-  if (parameter.requirement.defaultValue !== undefined) {
-    return {
-      kind: PARAMETER_CANDIDATE_KIND.default,
-      value: parameter.requirement.defaultValue,
-    };
-  }
-  return parameter.requirement.presence === PARAMETER_PRESENCE.required
-    ? {
+  switch (parameter.requirement.kind) {
+    case PARAMETER_REQUIREMENT_KIND.required:
+      return {
         kind: PARAMETER_CANDIDATE_KIND.invalid,
         issues: [`Missing required parameter ${parameter.name}`],
-      }
-    : { kind: PARAMETER_CANDIDATE_KIND.omitted };
+      };
+    case PARAMETER_REQUIREMENT_KIND.optional:
+      return { kind: PARAMETER_CANDIDATE_KIND.omitted };
+    case PARAMETER_REQUIREMENT_KIND.optionalWithDefault:
+      return {
+        kind: PARAMETER_CANDIDATE_KIND.default,
+        value: parameter.requirement.defaultValue,
+      };
+  }
 }
 
 export function decodeEntryInput<

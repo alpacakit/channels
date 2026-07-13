@@ -9,8 +9,7 @@ import type {
 import { visitEntryTree } from "./schema.js";
 import {
   ENTRY_OUTPUT_DESCRIPTION_KIND,
-  PARAMETER_PRESENCE,
-  PARAMETER_REQUIREMENT_KIND,
+  type PARAMETER_REQUIREMENT_KIND,
 } from "./values.js";
 
 const ENTRY_INTROSPECTION_ERROR = {
@@ -119,14 +118,5 @@ export function describeEntryTree(
 export function describeParameterRequirement(
   requirement: ErasedEntryDefinition["parameters"][number]["requirement"],
 ): ParameterRequirementDescription {
-  if (requirement.presence === PARAMETER_PRESENCE.required) {
-    return { kind: PARAMETER_REQUIREMENT_KIND.required };
-  }
-  if (requirement.defaultValue === undefined) {
-    return { kind: PARAMETER_REQUIREMENT_KIND.optional };
-  }
-  return {
-    kind: PARAMETER_REQUIREMENT_KIND.optionalWithDefault,
-    defaultValue: requirement.defaultValue,
-  };
+  return requirement;
 }

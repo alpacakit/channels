@@ -6,7 +6,7 @@ import type {
 import type { z } from "zod";
 import {
   type Channel,
-  PARAMETER_PRESENCE,
+  PARAMETER_REQUIREMENT_KIND,
   type VALUE_SHAPE_KIND,
 } from "./values.js";
 
@@ -102,21 +102,22 @@ export interface OutputContract<Value extends JsonValue> {
 }
 
 export type RequiredParameterRequirement = {
-  readonly presence: typeof PARAMETER_PRESENCE.required;
-  readonly defaultValue: undefined;
+  readonly kind: typeof PARAMETER_REQUIREMENT_KIND.required;
 };
 
-export type OptionalParameterRequirement<
-  Value extends JsonValue,
-  Default extends Value | undefined = Value | undefined,
-> = {
-  readonly presence: typeof PARAMETER_PRESENCE.optional;
-  readonly defaultValue: Default;
+export type OptionalParameterRequirement = {
+  readonly kind: typeof PARAMETER_REQUIREMENT_KIND.optional;
+};
+
+export type OptionalWithDefaultParameterRequirement<Value extends JsonValue> = {
+  readonly kind: typeof PARAMETER_REQUIREMENT_KIND.optionalWithDefault;
+  readonly defaultValue: Value;
 };
 
 export type ParameterRequirement<Value extends JsonValue> =
   | RequiredParameterRequirement
-  | OptionalParameterRequirement<Value>;
+  | OptionalParameterRequirement
+  | OptionalWithDefaultParameterRequirement<Value>;
 
 export type ParameterDefinition<
   Name extends string,
@@ -146,14 +147,11 @@ type ParameterValue<Parameter extends ErasedParameterDefinition> =
   Parameter extends ParameterDefinition<string, infer Value> ? Value : never;
 
 type ParameterMaterialization<Parameter extends ParameterSet[number]> =
-  Parameter["requirement"] extends RequiredParameterRequirement
+  Parameter["requirement"]["kind"] extends
+    | typeof PARAMETER_REQUIREMENT_KIND.required
+    | typeof PARAMETER_REQUIREMENT_KIND.optionalWithDefault
     ? true
-    : Parameter["requirement"] extends OptionalParameterRequirement<
-          JsonValue,
-          JsonValue
-        >
-      ? true
-      : false;
+    : false;
 
 type MaterializedParameter<Parameter extends ParameterSet[number]> =
   ParameterMaterialization<Parameter> extends true ? Parameter : never;
@@ -289,23 +287,25 @@ export function defineEntry<
 }
 
 export function required(): RequiredParameterRequirement {
-  return {
-    presence: PARAMETER_PRESENCE.required,
-    defaultValue: undefined,
-  };
+  return { kind: PARAMETER_REQUIREMENT_KIND.required };
 }
 
 export function optional<
-  Value extends JsonValue,
->(): OptionalParameterRequirement<Value, undefined>;
+  _Value extends JsonValue,
+>(): OptionalParameterRequirement;
 export function optional<Value extends JsonValue>(input: {
   readonly default: Value;
-}): OptionalParameterRequirement<Value, Value>;
-export function optional<Value extends JsonValue>(
-  input: { readonly default?: Value } = {},
-): OptionalParameterRequirement<Value> {
+}): OptionalWithDefaultParameterRequirement<Value>;
+export function optional<Value extends JsonValue>(input?: {
+  readonly default: Value;
+}):
+  | OptionalParameterRequirement
+  | OptionalWithDefaultParameterRequirement<Value> {
+  if (input === undefined) {
+    return { kind: PARAMETER_REQUIREMENT_KIND.optional };
+  }
   return {
-    presence: PARAMETER_PRESENCE.optional,
+    kind: PARAMETER_REQUIREMENT_KIND.optionalWithDefault,
     defaultValue: input.default,
   };
 }

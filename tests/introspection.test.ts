@@ -65,6 +65,19 @@ const TypedEntry = defineEntry({
 });
 
 describe("neutral entry introspection", () => {
+  it("stores parameter requirements as discriminated variants", () => {
+    expect(required()).toEqual({
+      kind: PARAMETER_REQUIREMENT_KIND.required,
+    });
+    expect(optional()).toEqual({
+      kind: PARAMETER_REQUIREMENT_KIND.optional,
+    });
+    expect(optional<JsonValue>({ default: null })).toEqual({
+      kind: PARAMETER_REQUIREMENT_KIND.optionalWithDefault,
+      defaultValue: null,
+    });
+  });
+
   it("describes requirements, defaults, value shapes and output presence", () => {
     expect(describeEntry(OutputlessEntry)).toEqual({
       name: "inspect",

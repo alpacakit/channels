@@ -24,6 +24,7 @@ import {
   type EntryTreeNode,
   optional,
   PARAMETER_REQUIREMENT_KIND,
+  type ParameterValues,
   required,
   VALUE_SHAPE_KIND,
   type ValueShape,
@@ -116,28 +117,29 @@ describe("entry tree builder types", () => {
   });
 
   it("materializes required and defaulted values in projection types", () => {
+    const parameters = [
+      defineParameter({
+        name: "requiredValue",
+        codec: codecs.string(),
+        requirement: required(),
+        description: "Required",
+      }),
+      defineParameter({
+        name: "defaultedValue",
+        codec: codecs.positiveInteger(),
+        requirement: optional<number>({ default: 2 }),
+        description: "Defaulted",
+      }),
+      defineParameter({
+        name: "omittedValue",
+        codec: codecs.boolean(),
+        requirement: optional<boolean>(),
+        description: "Omitted",
+      }),
+    ] as const;
     defineEntry({
       name: "materialized",
-      parameters: [
-        defineParameter({
-          name: "requiredValue",
-          codec: codecs.string(),
-          requirement: required(),
-          description: "Required",
-        }),
-        defineParameter({
-          name: "defaultedValue",
-          codec: codecs.positiveInteger(),
-          requirement: optional<number>({ default: 2 }),
-          description: "Defaulted",
-        }),
-        defineParameter({
-          name: "omittedValue",
-          codec: codecs.boolean(),
-          requirement: optional<boolean>(),
-          description: "Omitted",
-        }),
-      ],
+      parameters,
       project: ({ values }) => {
         expectTypeOf(values.requiredValue).toEqualTypeOf<string>();
         expectTypeOf(values.defaultedValue).toEqualTypeOf<number>();
@@ -145,6 +147,22 @@ describe("entry tree builder types", () => {
         return values;
       },
     });
+
+    const complete: ParameterValues<typeof parameters> = {
+      requiredValue: "value",
+      defaultedValue: 2,
+    };
+    // @ts-expect-error required parameters remain required
+    const missingRequired: ParameterValues<typeof parameters> = {
+      defaultedValue: 2,
+    };
+    // @ts-expect-error defaulted parameters remain materialized
+    const missingDefaulted: ParameterValues<typeof parameters> = {
+      requiredValue: "value",
+    };
+    void complete;
+    void missingRequired;
+    void missingDefaulted;
   });
 
   it("stores only non-default CLI binding choices", () => {

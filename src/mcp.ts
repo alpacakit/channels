@@ -25,7 +25,7 @@ import {
 import {
   CHANNEL,
   ENTRY_DECODE_RESULT_KIND,
-  PARAMETER_PRESENCE,
+  PARAMETER_REQUIREMENT_KIND,
 } from "./values.js";
 
 const ZOD_SCHEMA_TYPE = {
@@ -97,7 +97,7 @@ function buildMcpInputSchema(
       parameter.description,
     );
     shape[parameter.name] =
-      parameter.requirement.presence === PARAMETER_PRESENCE.optional
+      parameter.requirement.kind !== PARAMETER_REQUIREMENT_KIND.required
         ? describedSchema.optional()
         : describedSchema;
   }

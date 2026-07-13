@@ -1,9 +1,9 @@
 import { findParameter } from "./internal.js";
 import type {
-  ErasedParameterDefinition,
   ErasedEntryDefinition,
+  ErasedParameterDefinition,
 } from "./model.js";
-import { PARAMETER_PRESENCE } from "./values.js";
+import { PARAMETER_REQUIREMENT_KIND } from "./values.js";
 
 export const PARAMETER_BINDING_ISSUE_KIND = {
   duplicate: "duplicate",
@@ -68,7 +68,7 @@ export function compileParameterBindings<Row extends ParameterBindingRow>(
   }
   for (const parameter of entry.parameters) {
     if (
-      parameter.requirement.presence === PARAMETER_PRESENCE.required &&
+      parameter.requirement.kind === PARAMETER_REQUIREMENT_KIND.required &&
       !names.has(parameter.name)
     ) {
       issues.push({
