@@ -416,6 +416,38 @@ describe("entry tree composition and projection errors", () => {
     ).toThrow("conflicting cli segment overrides");
   });
 
+  it("merges equivalent segment payloads with different key order", () => {
+    const ordered = overrideCliSegment({ token: "config", aliases: ["cfg"] });
+    const payload = ordered.segment as {
+      readonly token: string;
+      readonly aliases: readonly string[];
+      readonly help: unknown;
+    };
+    const reverseOrdered = {
+      ...ordered,
+      segment: {
+        help: payload.help,
+        aliases: payload.aliases,
+        token: payload.token,
+      },
+    } as typeof ordered;
+
+    const [merged] = mergeEntryTreeNodes([
+      defineEntryNode({
+        name: "config",
+        description: "Config",
+        segments: [ordered],
+      }),
+      defineEntryNode({
+        name: "config",
+        description: "Config",
+        segments: [reverseOrdered],
+      }),
+    ]);
+
+    expect(merged?.segments).toHaveLength(1);
+  });
+
   it("treats empty documentation as no merge claim", () => {
     const documentation = {
       relatedDocs: ["config"],

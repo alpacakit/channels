@@ -2,7 +2,9 @@ import {
   type CLI_BOOLEAN_MODE,
   CLI_HELP_USAGE_KIND,
   type CLI_OPTION_KIND,
-  type CLI_OPTION_VALUE_MODE,
+  CLI_OPTION_VALUE_MODE,
+  defaultCliOptionFlag,
+  defaultCliValueName,
 } from "./cli-values.js";
 import type { ParameterRequirementDescription } from "./introspection.js";
 import type {
@@ -13,6 +15,8 @@ import type {
 import {
   createChannelSegmentOverride,
   createEntryChannelBinding,
+  PAYLOAD_KIND,
+  registerChannelPayload,
 } from "./tree-internal.js";
 import { CHANNEL } from "./values.js";
 
@@ -50,7 +54,7 @@ export type CliOptionFlag = `-${string}`;
 /** CLI segment-token path. Surface locations always use canonical tokens. */
 export type CliCommandPath = readonly string[];
 
-export type CliArgBinding<Name extends string = string> =
+export type CliArgBindingInput<Name extends string = string> =
   | {
       readonly kind: typeof CLI_ARG_KIND.option;
       readonly parameterName: Name;
@@ -73,6 +77,25 @@ export type CliArgBinding<Name extends string = string> =
       readonly coercion?: CliValueCoercion;
       /** Defaults to `false` when omitted. */
       readonly variadic?: boolean;
+    };
+
+export type CliArgBinding<Name extends string = string> =
+  | {
+      readonly kind: typeof CLI_ARG_KIND.option;
+      readonly parameterName: Name;
+      readonly flags: readonly CliOptionFlag[];
+      readonly valueName: string;
+      readonly coercion: CliValueCoercion | null;
+      readonly booleanMode: CliBooleanMode | null;
+      readonly negated: boolean;
+      readonly repeatable: boolean;
+    }
+  | {
+      readonly kind: typeof CLI_ARG_KIND.positional;
+      readonly parameterName: Name;
+      readonly valueName: string;
+      readonly coercion: CliValueCoercion | null;
+      readonly variadic: boolean;
     };
 
 export type CliEntryBinding<Name extends string = string> = {
@@ -143,22 +166,24 @@ export type CliGroupHelpInput = {
   readonly examples?: readonly CliHelpExampleInput[];
 };
 
-type CliOptionParameterName<Bindings extends readonly CliArgBinding[]> =
+type CliOptionParameterName<Bindings extends readonly CliArgBindingInput[]> =
   Extract<
     Bindings[number],
     { readonly kind: typeof CLI_ARG_KIND.option }
   >["parameterName"];
 
 export function bindCliEntry<
-  const Bindings extends readonly CliArgBinding[],
+  const Bindings extends readonly CliArgBindingInput[],
 >(binding: {
   readonly parameters: Bindings;
   readonly help?: CliCommandHelpInput<CliOptionParameterName<Bindings>>;
 }): EntryChannelBinding<typeof CHANNEL.cli, Bindings[number]["parameterName"]> {
-  return createEntryChannelBinding(CHANNEL.cli, {
-    parameters: binding.parameters,
+  const payload = {
+    parameters: binding.parameters.map(normalizeCliArgBinding),
     help: normalizeCliCommandHelp(binding.help),
-  });
+  } satisfies CliEntryBinding;
+  registerChannelPayload(PAYLOAD_KIND.cliBinding, payload);
+  return createEntryChannelBinding(CHANNEL.cli, payload);
 }
 
 export function overrideCliSegment(segment: {
@@ -166,11 +191,37 @@ export function overrideCliSegment(segment: {
   readonly aliases?: readonly string[];
   readonly help?: CliGroupHelpInput;
 }): ChannelSegmentOverride {
-  return createChannelSegmentOverride(CHANNEL.cli, {
+  const payload = {
     token: segment.token,
     aliases: segment.aliases ?? [],
     help: normalizeCliGroupHelp(segment.help),
-  } satisfies CliSegment);
+  } satisfies CliSegment;
+  registerChannelPayload(PAYLOAD_KIND.cliSegment, payload);
+  return createChannelSegmentOverride(CHANNEL.cli, payload);
+}
+
+function normalizeCliArgBinding<Name extends string>(
+  input: CliArgBindingInput<Name>,
+): CliArgBinding<Name> {
+  if (input.kind === CLI_ARG_KIND.option) {
+    return {
+      kind: input.kind,
+      parameterName: input.parameterName,
+      flags: input.flags ?? [defaultCliOptionFlag(input.parameterName)],
+      valueName: input.valueName ?? defaultCliValueName(input.parameterName),
+      coercion: input.coercion ?? null,
+      booleanMode: input.booleanMode ?? null,
+      negated: input.negated ?? false,
+      repeatable: input.repeatMode === CLI_OPTION_VALUE_MODE.commaOrRepeat,
+    };
+  }
+  return {
+    kind: input.kind,
+    parameterName: input.parameterName,
+    valueName: input.valueName ?? defaultCliValueName(input.parameterName),
+    coercion: input.coercion ?? null,
+    variadic: input.variadic ?? false,
+  };
 }
 
 function normalizeCliCommandHelp(

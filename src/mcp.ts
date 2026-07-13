@@ -16,7 +16,12 @@ import type {
 } from "./model.js";
 import { decodeEntryInput, type EntryDecodeResult } from "./runtime.js";
 import { EntryTreeDefinitionError, findChannelBinding } from "./schema.js";
-import { createEntryChannelBinding } from "./tree-internal.js";
+import {
+  createEntryChannelBinding,
+  isChannelPayload,
+  PAYLOAD_KIND,
+  registerChannelPayload,
+} from "./tree-internal.js";
 import {
   CHANNEL,
   ENTRY_DECODE_RESULT_KIND,
@@ -34,6 +39,7 @@ export type McpBinding<Parameters extends ParameterSet = ParameterSet> =
 export function bindMcpEntry<const ParameterNames extends readonly string[]>(
   ...parameterNames: ParameterNames
 ): EntryChannelBinding<typeof CHANNEL.mcp, ParameterNames[number]> {
+  registerChannelPayload(PAYLOAD_KIND.mcpBinding, parameterNames);
   return createEntryChannelBinding(CHANNEL.mcp, parameterNames);
 }
 
@@ -143,9 +149,7 @@ function formatMcpParameterBindingIssue(
 }
 
 function isMcpBinding(value: unknown): value is McpBinding {
-  return (
-    Array.isArray(value) && value.every((name) => typeof name === "string")
-  );
+  return isChannelPayload(PAYLOAD_KIND.mcpBinding, value);
 }
 
 export function createMcpOutputSchema<

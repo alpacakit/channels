@@ -214,6 +214,38 @@ function sameStringList(
   );
 }
 
+function sameChannelPayload(left: unknown, right: unknown): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return (
+      left.length === right.length &&
+      left.every((value, index) => sameChannelPayload(value, right[index]))
+    );
+  }
+  if (
+    typeof left !== "object" ||
+    left === null ||
+    typeof right !== "object" ||
+    right === null ||
+    Array.isArray(left) ||
+    Array.isArray(right)
+  ) {
+    return false;
+  }
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key) =>
+        Object.hasOwn(right, key) &&
+        sameChannelPayload(Reflect.get(left, key), Reflect.get(right, key)),
+    )
+  );
+}
+
 function groupNodes(
   nodes: readonly EntryTreeNode[],
 ): readonly (readonly EntryTreeNode[])[] {
@@ -247,7 +279,7 @@ function mergeSegments(
     const existing = byChannel.get(segment.channel);
     if (
       existing !== undefined &&
-      JSON.stringify(existing.segment) !== JSON.stringify(segment.segment)
+      !sameChannelPayload(existing.segment, segment.segment)
     ) {
       issues.push(`${path}: conflicting ${segment.channel} segment overrides`);
       continue;

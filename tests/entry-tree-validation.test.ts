@@ -325,6 +325,26 @@ describe("Phase-A entry tree definition validation", () => {
     );
   });
 
+  it("preserves an authored empty option flag list for validation", () => {
+    expectInvalid(
+      node({
+        name: "root",
+        description: "Root",
+        endpoints: [
+          defineEntryEndpoint(
+            ShapeEntry,
+            bindCliEntry({
+              parameters: [
+                { kind: "option", parameterName: "text", flags: [] },
+              ],
+            }),
+          ),
+        ],
+      }),
+      "must declare a flag",
+    );
+  });
+
   it("rejects duplicate, nonexistent and unreachable parameter bindings", () => {
     expectInvalid(
       node({

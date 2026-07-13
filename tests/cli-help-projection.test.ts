@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   bindCliEntry,
-  CLI_HELP_USAGE_KIND,
   createCliRouter,
   listCliHelpSurfaces,
   overrideCliSegment,
@@ -302,55 +301,36 @@ describe("CLI help definition validation", () => {
     );
   });
 
-  it("rejects an empty authored usage after type erasure", () => {
-    const parameters = [
-      { kind: "option", parameterName: "first" },
-      { kind: "option", parameterName: "second" },
-      { kind: "positional", parameterName: "target" },
-    ] as const;
-    const valid = bindCliEntry({ parameters });
-    const malformed = {
-      ...valid,
-      binding: {
-        parameters,
-        help: {
-          usage: { kind: CLI_HELP_USAGE_KIND.authored, values: [] },
-          examples: [],
-          optionSections: [],
-        },
-      },
-    } as typeof valid;
-
-    expectInvalidHelp(malformed, "invalid CLI endpoint binding");
-  });
-
-  it.each([
-    { booleanMode: "invalid" },
-    { negated: false },
-    { repeatMode: "repeat" },
-  ])("rejects malformed optional CLI binding fields %#", (invalidFields) => {
+  it("rejects an unregistered CLI binding payload", () => {
     const valid = bindCliEntry({
       parameters: [{ kind: "option", parameterName: "first" }],
     });
-    const malformed = {
+    const unregistered = {
       ...valid,
-      binding: {
-        parameters: [
-          {
-            kind: "option",
-            parameterName: "first",
-            ...invalidFields,
-          },
-        ],
-        help: {
-          usage: { kind: CLI_HELP_USAGE_KIND.derived },
-          examples: [],
-          optionSections: [],
-        },
-      },
+      binding: { ...(valid.binding as Record<string, unknown>) },
     } as typeof valid;
 
-    expectInvalidHelp(malformed, "invalid CLI endpoint binding");
+    expectInvalidHelp(unregistered, "invalid CLI endpoint binding");
+  });
+
+  it("rejects an unregistered CLI segment payload", () => {
+    const valid = overrideCliSegment({ token: "root" });
+    const unregistered = {
+      ...valid,
+      segment: { ...(valid.segment as Record<string, unknown>) },
+    } as typeof valid;
+
+    expect(() =>
+      createCliRouter(
+        defineEntryTree(
+          defineEntryNode({
+            name: "root",
+            description: "Root",
+            segments: [unregistered],
+          }),
+        ),
+      ),
+    ).toThrow("invalid CLI segment override");
   });
 
   it("rejects a subcommand hint on a leaf", () => {

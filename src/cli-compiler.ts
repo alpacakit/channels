@@ -18,6 +18,7 @@ import {
   CLI_OPTION_KIND,
   CLI_OPTION_VALUE_MODE,
   CLI_POSITIONAL_PLAN_KIND,
+  defaultCliValueName,
 } from "./cli-values.js";
 import type { EntryTreeEndpoint, ErasedParameterDefinition } from "./model.js";
 import { VALUE_SHAPE_KIND } from "./values.js";
@@ -33,8 +34,6 @@ const CLI_COMPILER_SYNTAX = {
   longOptionPrefix: "--",
   negatedLongOptionPrefix: "--no-",
   optionPrefix: "-",
-  parameterWordSeparator: "-",
-  valueWordSeparator: "_",
 } as const;
 
 type CompiledCliOptionBase = {
@@ -148,7 +147,7 @@ function compileCliOption(
   issues: string[],
 ): CompiledCliOption {
   const { row, parameter } = compiled;
-  const flags = row.flags ?? [defaultCliOptionFlag(parameter.name)];
+  const flags = row.flags;
   if (flags.length === 0) {
     issues.push(`${location}: option ${row.parameterName} must declare a flag`);
   }
@@ -159,7 +158,7 @@ function compileCliOption(
       );
     }
   }
-  if (row.valueName !== undefined && row.valueName.length === 0) {
+  if (row.valueName.length === 0) {
     issues.push(
       `${location}: option ${row.parameterName} valueName must not be empty`,
     );
@@ -173,18 +172,17 @@ function compileCliOption(
         kind: CLI_OPTION_KIND.value,
         parameter,
         flags,
-        coercion: row.coercion ?? null,
-        valueName: row.valueName ?? defaultCliValueName(parameter.name),
-        valueMode:
-          row.repeatMode === CLI_OPTION_VALUE_MODE.commaOrRepeat
-            ? CLI_OPTION_VALUE_MODE.commaOrRepeat
-            : CLI_OPTION_VALUE_MODE.repeat,
+        coercion: row.coercion,
+        valueName: row.valueName,
+        valueMode: row.repeatable
+          ? CLI_OPTION_VALUE_MODE.commaOrRepeat
+          : CLI_OPTION_VALUE_MODE.repeat,
       };
     case VALUE_SHAPE_KIND.positiveInteger:
     case VALUE_SHAPE_KIND.string:
     case VALUE_SHAPE_KIND.stringEnum:
       rejectBooleanChoices(row, location, issues);
-      if (row.repeatMode !== undefined) {
+      if (row.repeatable) {
         issues.push(
           `${location}: repeatMode contradicts ${row.parameterName} codec shape`,
         );
@@ -193,8 +191,8 @@ function compileCliOption(
         kind: CLI_OPTION_KIND.value,
         parameter,
         flags,
-        coercion: row.coercion ?? null,
-        valueName: row.valueName ?? defaultCliValueName(parameter.name),
+        coercion: row.coercion,
+        valueName: row.valueName,
         valueMode: CLI_OPTION_VALUE_MODE.replace,
       };
   }
@@ -211,27 +209,6 @@ function isReachableCliOptionFlag(flag: string): boolean {
   );
 }
 
-function toKebabCase(name: string): string {
-  return name
-    .replace(
-      /[A-Z]/g,
-      (letter) =>
-        `${CLI_COMPILER_SYNTAX.parameterWordSeparator}${letter.toLowerCase()}`,
-    )
-    .replace(/_/g, CLI_COMPILER_SYNTAX.parameterWordSeparator)
-    .replace(/^-/, "");
-}
-
-function defaultCliOptionFlag(parameterName: string): CliLongOptionFlag {
-  return `${CLI_COMPILER_SYNTAX.longOptionPrefix}${toKebabCase(parameterName)}`;
-}
-
-function defaultCliValueName(parameterName: string): string {
-  return toKebabCase(parameterName)
-    .replace(/-/g, CLI_COMPILER_SYNTAX.valueWordSeparator)
-    .toUpperCase();
-}
-
 function compileCliBooleanOption(
   compiled: CompiledParameterBinding<
     Extract<CliArgBinding, { readonly kind: typeof CLI_ARG_KIND.option }>
@@ -241,7 +218,7 @@ function compileCliBooleanOption(
   issues: string[],
 ): CompiledCliOption {
   const { row, parameter } = compiled;
-  if (row.repeatMode !== undefined) {
+  if (row.repeatable) {
     issues.push(
       `${location}: repeatMode contradicts ${row.parameterName} codec shape`,
     );
@@ -261,17 +238,17 @@ function compileCliBooleanOption(
       kind: CLI_OPTION_KIND.value,
       parameter,
       flags,
-      coercion: row.coercion ?? null,
-      valueName: row.valueName ?? defaultCliValueName(parameter.name),
+      coercion: row.coercion,
+      valueName: row.valueName,
       valueMode: CLI_OPTION_VALUE_MODE.replace,
     };
   }
-  if (row.valueName !== undefined) {
+  if (row.valueName !== defaultCliValueName(parameter.name)) {
     issues.push(
       `${location}: valueName contradicts flag booleanMode for ${row.parameterName}`,
     );
   }
-  if (row.coercion !== undefined) {
+  if (row.coercion !== null) {
     issues.push(
       `${location}: coercion contradicts flag booleanMode for ${row.parameterName}`,
     );
@@ -306,12 +283,12 @@ function rejectBooleanChoices(
   location: string,
   issues: string[],
 ): void {
-  if (row.booleanMode !== undefined) {
+  if (row.booleanMode !== null) {
     issues.push(
       `${location}: booleanMode contradicts ${row.parameterName} codec shape`,
     );
   }
-  if (row.negated !== undefined) {
+  if (row.negated) {
     issues.push(
       `${location}: negated contradicts ${row.parameterName} codec shape`,
     );
@@ -326,25 +303,23 @@ function compileCliPositional(
   issues: string[],
 ): CompiledCliPositional {
   const { row, parameter } = compiled;
-  const variadic = row.variadic ?? false;
-  const valueName = row.valueName ?? defaultCliValueName(parameter.name);
-  if (variadic && parameter.codec.shape.kind !== VALUE_SHAPE_KIND.array) {
+  if (row.variadic && parameter.codec.shape.kind !== VALUE_SHAPE_KIND.array) {
     issues.push(
       `${location}: variadic positional ${row.parameterName} requires an array codec`,
     );
   }
-  if (valueName.length === 0) {
+  if (row.valueName.length === 0) {
     issues.push(
       `${location}: positional ${row.parameterName} valueName must not be empty`,
     );
   }
   return {
-    kind: variadic
+    kind: row.variadic
       ? CLI_POSITIONAL_PLAN_KIND.rest
       : CLI_POSITIONAL_PLAN_KIND.single,
     parameter,
-    valueName,
-    coercion: row.coercion ?? null,
+    valueName: row.valueName,
+    coercion: row.coercion,
   };
 }
 
