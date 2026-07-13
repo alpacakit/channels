@@ -4,7 +4,6 @@ import {
   PARAMETER_BINDING_ISSUE_KIND,
   type ParameterBindingIssue,
 } from "./binding-compiler.js";
-import { hasAuthoredCliValueName } from "./cli-internal.js";
 import {
   CLI_ARG_KIND,
   type CliArgBinding,
@@ -244,7 +243,7 @@ function compileCliBooleanOption(
       valueMode: CLI_OPTION_VALUE_MODE.replace,
     };
   }
-  if (hasAuthoredCliValueName(row)) {
+  if (row.valueNameAuthored) {
     issues.push(
       `${location}: valueName contradicts flag booleanMode for ${row.parameterName}`,
     );

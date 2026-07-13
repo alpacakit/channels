@@ -1,4 +1,3 @@
-import { registerAuthoredCliValueName } from "./cli-internal.js";
 import {
   type CLI_BOOLEAN_MODE,
   CLI_HELP_USAGE_KIND,
@@ -86,6 +85,13 @@ export type CliArgBinding<Name extends string = string> =
       readonly parameterName: Name;
       readonly flags: readonly CliOptionFlag[];
       readonly valueName: string;
+      /**
+       * Whether `valueName` was authored rather than derived. Boolean-flag
+       * options reject an authored value name at compile time, so the
+       * provenance must survive normalization instead of being inferred from
+       * the (always-populated) `valueName`.
+       */
+      readonly valueNameAuthored: boolean;
       readonly coercion: CliValueCoercion | null;
       readonly booleanMode: CliBooleanMode | null;
       readonly negated: boolean;
@@ -205,20 +211,17 @@ function normalizeCliArgBinding<Name extends string>(
   input: CliArgBindingInput<Name>,
 ): CliArgBinding<Name> {
   if (input.kind === CLI_ARG_KIND.option) {
-    const binding: CliArgBinding<Name> = {
+    return {
       kind: input.kind,
       parameterName: input.parameterName,
       flags: input.flags ?? [defaultCliOptionFlag(input.parameterName)],
       valueName: input.valueName ?? defaultCliValueName(input.parameterName),
+      valueNameAuthored: input.valueName !== undefined,
       coercion: input.coercion ?? null,
       booleanMode: input.booleanMode ?? null,
       negated: input.negated ?? false,
       repeatable: input.repeatMode === CLI_OPTION_VALUE_MODE.commaOrRepeat,
     };
-    if (input.valueName !== undefined) {
-      registerAuthoredCliValueName(binding);
-    }
-    return binding;
   }
   return {
     kind: input.kind,
