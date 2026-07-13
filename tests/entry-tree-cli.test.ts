@@ -554,13 +554,11 @@ describe("CLI entry tree router", () => {
     expect(router.help).toMatchObject({
       name: "alpaca",
       token: null,
-      executable: true,
       children: expect.arrayContaining([
         expect.objectContaining({
           name: "hint",
           token: "h",
           aliases: ["hi"],
-          executable: true,
         }),
       ]),
     });

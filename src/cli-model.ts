@@ -255,7 +255,6 @@ export type CliHelpSurface = {
   readonly token: string | null;
   readonly aliases: readonly string[];
   readonly description: string;
-  readonly executable: boolean;
   readonly optionGroups: readonly CliHelpOptionGroup[];
   readonly positionals: readonly CliHelpPositional[];
   readonly children: readonly CliHelpSurface[];

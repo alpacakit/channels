@@ -23,11 +23,6 @@ import { describeParameterRequirement } from "./introspection.js";
 import type { EntryTreeNode } from "./model.js";
 import { PARAMETER_REQUIREMENT_KIND } from "./values.js";
 
-const CLI_HELP_ENDPOINT_KIND = {
-  executable: "executable",
-  group: "group",
-} as const;
-
 const CLI_HELP_USAGE_SYNTAX = {
   commandArgument: "<command>",
   commandPartSeparator: " ",
@@ -53,26 +48,15 @@ const CLI_HELP_VALIDATION_ISSUE = {
     `${location}: help option section ${JSON.stringify(heading)} names non-option parameter ${parameterName}`,
 } as const;
 
-type CliEndpointHelpProjection =
-  | {
-      readonly kind: typeof CLI_HELP_ENDPOINT_KIND.group;
-      readonly examples: readonly [];
-      readonly options: readonly [];
-      readonly optionSections: readonly [];
-      readonly positionals: readonly [];
-      readonly usage: { readonly kind: typeof CLI_HELP_USAGE_KIND.derived };
-    }
-  | {
-      readonly kind: typeof CLI_HELP_ENDPOINT_KIND.executable;
-      readonly examples: readonly CliHelpExample[];
-      readonly options: readonly CliHelpOption[];
-      readonly optionSections: readonly CliHelpOptionSection[];
-      readonly positionals: readonly CliHelpPositional[];
-      readonly usage: CliHelpUsage;
-    };
+type CliEndpointHelpProjection = {
+  readonly examples: readonly CliHelpExample[];
+  readonly options: readonly CliHelpOption[];
+  readonly optionSections: readonly CliHelpOptionSection[];
+  readonly positionals: readonly CliHelpPositional[];
+  readonly usage: CliHelpUsage;
+};
 
 const GROUP_HELP_PROJECTION = {
-  kind: CLI_HELP_ENDPOINT_KIND.group,
   examples: [],
   options: [],
   optionSections: [],
@@ -96,7 +80,6 @@ export function createCliHelpSurface(input: {
     description: input.node.description,
     remarks: input.node.documentation.remarks,
     relatedDocs: input.node.documentation.relatedDocs,
-    executable: endpoint.kind === CLI_HELP_ENDPOINT_KIND.executable,
     optionGroups: projectCliHelpOptionGroups(
       endpoint.options,
       endpoint.optionSections,
@@ -200,7 +183,6 @@ function projectCliEndpointHelp(
     return GROUP_HELP_PROJECTION;
   }
   return {
-    kind: CLI_HELP_ENDPOINT_KIND.executable,
     examples: endpoint.help.examples,
     options: endpoint.options.map(cliHelpOptionFor),
     optionSections: endpoint.help.optionSections,
