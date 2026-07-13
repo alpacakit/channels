@@ -47,6 +47,9 @@ export type CliValueCoercion =
 export type CliLongOptionFlag = `--${string}`;
 export type CliOptionFlag = `-${string}`;
 
+/** CLI segment-token path. Surface locations always use canonical tokens. */
+export type CliCommandPath = readonly string[];
+
 export type CliArgBinding<Name extends string = string> =
   | {
       readonly kind: typeof CLI_ARG_KIND.option;
@@ -227,6 +230,18 @@ export type CliHelpOption = CliHelpOptionBase &
       }
   );
 
+/**
+ * Render-ready option grouping. Unlike `CliHelpOptionSection`, this projected
+ * read model contains the referenced options themselves, so renderers never
+ * need to join authored parameter names back to the flat option list.
+ */
+export type CliHelpOptionGroup = {
+  /** `null` identifies the unsectioned option group. */
+  readonly heading: string | null;
+  readonly description: string | null;
+  readonly options: readonly CliHelpOption[];
+};
+
 export type CliHelpPositional = {
   readonly parameterName: string;
   readonly valueName: string;
@@ -241,15 +256,34 @@ export type CliHelpSurface = {
   readonly aliases: readonly string[];
   readonly description: string;
   readonly executable: boolean;
-  readonly options: readonly CliHelpOption[];
+  readonly optionGroups: readonly CliHelpOptionGroup[];
   readonly positionals: readonly CliHelpPositional[];
   readonly children: readonly CliHelpSurface[];
   readonly remarks: readonly string[];
   readonly relatedDocs: readonly string[];
   readonly usages: CliHelpUsageList;
   readonly examples: readonly CliHelpExample[];
-  readonly optionSections: readonly CliHelpOptionSection[];
   readonly subcommandHint: string | null;
+};
+
+export type CliHelpRenderContext = {
+  /** Full selected command name, including the executable and command path. */
+  readonly programName: string;
+  /** Root executable name used to prefix authored invocation examples. */
+  readonly executableName: string;
+  /** Canonical CLI segment-token path for the supplied surface. */
+  readonly path: CliCommandPath;
+  readonly withDescription: boolean;
+};
+
+export type CliHelpRender = (
+  surface: CliHelpSurface,
+  context: CliHelpRenderContext,
+) => string;
+
+export type CliHelpSurfaceLocation = {
+  readonly surface: CliHelpSurface;
+  readonly path: CliCommandPath;
 };
 
 export type CliRouterResult =

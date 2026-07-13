@@ -629,11 +629,18 @@ CLI binding and routing rules:
 `createCliRouter()` compiles and validates the complete CLI surface. Invalid
 definitions throw `EntryTreeDefinitionError` at construction time.
 
-The router's `help` property contains the compiled hierarchy, aliases, options,
-positionals, requiredness, defaults, repeat modes, and generated negative flags.
-`findCliHelpSurface()`, `renderCliHelp()`, and `formatCliRouterError()` provide
-optional standard traversal and text rendering without writing output or
-choosing an exit code. `--help` and `--version` remain application policy.
+The router's `help` property contains the compiled hierarchy, aliases,
+render-ready option groups, positionals, requiredness, defaults, repeat modes,
+and generated negative flags. Authored option-section names are resolved during
+projection, so renderers consume `optionGroups` without performing a join.
+`findCliHelpSurface()`, `listCliHelpSurfaces()`, `renderCliHelp()`, and
+`formatCliRouterError()` provide standard lookup, traversal, one-surface text
+rendering, and diagnostics without writing output or choosing an exit code.
+`renderCliHelp()` implements `CliHelpRender`; its context carries the full
+selected `programName`, root `executableName`, path, and description preference.
+The renderer path uses canonical CLI segment tokens; a directly invoked alias
+may still be preserved in `programName` for user-facing usage text.
+`--help`, complete-reference framing, and `--version` remain application policy.
 
 The router returns a discriminated union:
 

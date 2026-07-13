@@ -1,7 +1,11 @@
 import {
   CLI_ROUTER_RESULT_KIND,
+  type CliCommandPath,
+  type CliHelpExample,
   type CliHelpOption,
+  type CliHelpRenderContext,
   type CliHelpSurface,
+  type CliHelpSurfaceLocation,
   type CliOptionValueMode,
   type CliRouterResult,
 } from "./cli-model.js";
@@ -12,7 +16,6 @@ import { PARAMETER_REQUIREMENT_KIND } from "./values.js";
 const CLI_HELP_TEXT = {
   argumentsHeading: "Arguments:",
   commandArgument: "<command>",
-  commandReferenceHeading: "Command reference",
   commandsHeading: "Commands:",
   commaOrRepeatDetail: "comma-separated or repeatable",
   defaultDetailPrefix: "default:",
@@ -56,15 +59,24 @@ type CliHelpSection = readonly string[];
 type OptionalCliHelpSection = CliHelpSection | null;
 type CliHelpRequirementDetails = readonly [string, ...string[]];
 
-export type RenderCliHelpOptions = {
-  readonly programName?: string;
+export type CliHelpOptionDescription = {
+  readonly names: string;
+  readonly description: string;
 };
 
 export function findCliHelpSurface(
   root: CliHelpSurface,
-  commandPath: readonly string[],
+  commandPath: CliCommandPath,
 ): CliHelpSurface | null {
+  return findCliHelpSurfaceLocation(root, commandPath)?.surface ?? null;
+}
+
+export function findCliHelpSurfaceLocation(
+  root: CliHelpSurface,
+  commandPath: CliCommandPath,
+): CliHelpSurfaceLocation | null {
   let current = root;
+  const path: string[] = [];
   for (const token of commandPath) {
     const child = current.children.find(
       (candidate) =>
@@ -74,64 +86,42 @@ export function findCliHelpSurface(
       return null;
     }
     current = child;
+    path.push(child.token ?? child.name);
   }
-  return current;
+  return { surface: current, path };
 }
 
 export function renderCliHelp(
   surface: CliHelpSurface,
-  options: RenderCliHelpOptions = {},
-): string {
-  const programName = options.programName ?? surface.token ?? surface.name;
-  const rendered = [renderCliHelpSurface(surface, programName, programName)];
-  const pending = surface.children.map((child) => ({
-    surface: child,
-    commandPath: appendCommandPart(programName, child.token ?? child.name),
-  }));
-  for (const current of pending) {
-    if (hasCliHelpDetail(current.surface)) {
-      rendered.push(
-        renderCliHelpSurface(current.surface, current.commandPath, programName),
-      );
-    }
-    pending.push(
-      ...current.surface.children.map((child) => ({
-        surface: child,
-        commandPath: appendCommandPart(
-          current.commandPath,
-          child.token ?? child.name,
-        ),
-      })),
-    );
-  }
-  return `${CLI_HELP_TEXT.commandReferenceHeading}${CLI_HELP_LAYOUT.sectionSeparator}${rendered.join(CLI_HELP_LAYOUT.sectionSeparator)}${CLI_HELP_LAYOUT.lineSeparator}`;
-}
-
-function hasCliHelpDetail(surface: CliHelpSurface): boolean {
-  return (
-    surface.executable ||
-    surface.remarks.length > 0 ||
-    surface.relatedDocs.length > 0 ||
-    surface.examples.length > 0 ||
-    surface.subcommandHint !== null
-  );
-}
-
-function renderCliHelpSurface(
-  surface: CliHelpSurface,
-  programName: string,
-  exampleProgramName: string,
+  context: CliHelpRenderContext,
 ): string {
   return joinCliHelpSections([
-    createCliHelpSummarySection(surface, programName),
+    createCliHelpSummarySection(surface, context.programName),
     createCliHelpCommandsSection(surface),
     createCliHelpArgumentsSection(surface),
     createCliHelpOptionsSection(surface),
     createCliHelpRemarksSection(surface),
-    createCliHelpExamplesSection(surface, exampleProgramName),
+    createCliHelpExamplesSection(surface, context.executableName),
     createCliHelpDocumentationSection(surface),
-    createCliHelpNextStepsSection(surface, programName),
+    createCliHelpNextStepsSection(surface, context.programName),
   ]);
+}
+
+export function listCliHelpSurfaces(
+  root: CliHelpSurface,
+): readonly CliHelpSurfaceLocation[] {
+  const locations: CliHelpSurfaceLocation[] = [];
+  const pending: CliHelpSurfaceLocation[] = [{ surface: root, path: [] }];
+  for (const current of pending) {
+    locations.push(current);
+    pending.push(
+      ...current.surface.children.map((child) => ({
+        surface: child,
+        path: [...current.path, child.token ?? child.name],
+      })),
+    );
+  }
+  return locations;
 }
 
 function joinCliHelpSections(
@@ -150,7 +140,7 @@ function createCliHelpSummarySection(
   return [
     ...surface.usages.map(
       (usage) =>
-        `${CLI_HELP_TEXT.usageHeading} ${appendCommandPart(programName, usage)}`,
+        `${CLI_HELP_TEXT.usageHeading} ${appendCliCommandPart(programName, usage)}`,
     ),
     CLI_HELP_LAYOUT.emptyLine,
     surface.description,
@@ -184,7 +174,7 @@ function createCliHelpArgumentsSection(
     CLI_HELP_TEXT.argumentsHeading,
     ...surface.positionals.map(
       (positional) =>
-        `${CLI_HELP_LAYOUT.itemIndent}${positional.valueName}${CLI_HELP_LAYOUT.columnSeparator}${formatHelpDescription(
+        `${CLI_HELP_LAYOUT.itemIndent}${positional.valueName}${CLI_HELP_LAYOUT.columnSeparator}${formatCliHelpParameterDescription(
           {
             description: positional.description,
             requirement: positional.requirement,
@@ -198,7 +188,7 @@ function createCliHelpArgumentsSection(
 function createCliHelpOptionsSection(
   surface: CliHelpSurface,
 ): OptionalCliHelpSection {
-  if (surface.options.length === 0 && surface.optionSections.length === 0) {
+  if (surface.optionGroups.length === 0) {
     return null;
   }
   return [CLI_HELP_TEXT.optionsHeading, ...renderCliHelpOptions(surface)];
@@ -227,22 +217,7 @@ function createCliHelpExamplesSection(
   }
   return [
     CLI_HELP_TEXT.examplesHeading,
-    ...surface.examples.flatMap((example, index) => [
-      ...(index === 0 ? [] : [CLI_HELP_LAYOUT.emptyLine]),
-      `${CLI_HELP_LAYOUT.itemIndent}${example.title}:`,
-      `${CLI_HELP_LAYOUT.nestedItemIndent}${CLI_HELP_TEXT.useWhenPrefix} ${example.useWhen}`,
-      CLI_HELP_LAYOUT.emptyLine,
-      `${CLI_HELP_LAYOUT.nestedItemIndent}${appendCommandPart(programName, example.command)}`,
-      ...(example.expectedResult.length === 0
-        ? []
-        : [
-            CLI_HELP_LAYOUT.emptyLine,
-            `${CLI_HELP_LAYOUT.nestedItemIndent}${CLI_HELP_TEXT.expectedResultHeading}`,
-            ...example.expectedResult.map(
-              (line) => `${CLI_HELP_LAYOUT.resultIndent}${line}`,
-            ),
-          ]),
-    ]),
+    ...renderCliHelpExamples(surface.examples, programName),
   ];
 }
 
@@ -269,76 +244,67 @@ function createCliHelpNextStepsSection(
   }
   return [
     CLI_HELP_TEXT.nextStepsHeading,
-    `${CLI_HELP_LAYOUT.itemIndent}${surface.subcommandHint ?? formatDefaultSubcommandHint(programName)}`,
+    `${CLI_HELP_LAYOUT.itemIndent}${surface.subcommandHint ?? formatDefaultCliSubcommandHint(programName)}`,
   ];
 }
 
 function renderCliHelpOptions(surface: CliHelpSurface): readonly string[] {
-  const optionByParameterName = new Map(
-    surface.options.map((option) => [option.parameterName, option]),
-  );
-  const sectionedNames = new Set(
-    surface.optionSections.flatMap((section) => section.parameterNames),
-  );
-  return [
-    ...surface.optionSections.flatMap((section) => [
-      `${CLI_HELP_LAYOUT.itemIndent}${section.heading}`,
-      ...(section.description === null
+  return surface.optionGroups.flatMap((group) => {
+    const indent =
+      group.heading === null
+        ? CLI_HELP_LAYOUT.itemIndent
+        : CLI_HELP_LAYOUT.nestedItemIndent;
+    return [
+      ...(group.heading === null
         ? []
-        : [`${CLI_HELP_LAYOUT.nestedItemIndent}${section.description}`]),
-      ...section.parameterNames.flatMap((parameterName) => {
-        const option = optionByParameterName.get(parameterName);
-        return option
-          ? [renderCliHelpOption(option, CLI_HELP_LAYOUT.nestedItemIndent)]
-          : [];
-      }),
-    ]),
-    ...surface.options
-      .filter((option) => !sectionedNames.has(option.parameterName))
-      .map((option) => renderCliHelpOption(option, CLI_HELP_LAYOUT.itemIndent)),
-  ];
+        : [`${CLI_HELP_LAYOUT.itemIndent}${group.heading}`]),
+      ...(group.description === null
+        ? []
+        : [`${CLI_HELP_LAYOUT.nestedItemIndent}${group.description}`]),
+      ...group.options.map((option) => renderCliHelpOption(option, indent)),
+    ];
+  });
 }
 
 function renderCliHelpOption(option: CliHelpOption, indent: string): string {
+  const description = describeCliHelpOption(option);
+  return `${indent}${description.names}${CLI_HELP_LAYOUT.columnSeparator}${description.description}`;
+}
+
+export function describeCliHelpOption(
+  option: CliHelpOption,
+): CliHelpOptionDescription {
   switch (option.kind) {
     case CLI_OPTION_KIND.booleanFlag:
-      return renderCliHelpOptionRow({
-        indent,
+      return {
         names: [...option.flags, ...option.negativeFlags].join(
           CLI_HELP_LAYOUT.detailSeparator,
         ),
-        description: option.description,
-        requirement: option.requirement,
-        additionalDetails: [],
-      });
+        description: formatCliHelpParameterDescription({
+          description: option.description,
+          requirement: option.requirement,
+          additionalDetails: [],
+        }),
+      };
     case CLI_OPTION_KIND.value:
-      return renderCliHelpOptionRow({
-        indent,
+      return {
         names: `${option.flags.join(CLI_HELP_LAYOUT.detailSeparator)} <${option.valueName}>`,
-        description: option.description,
-        requirement: option.requirement,
-        additionalDetails: CLI_OPTION_VALUE_MODE_DETAILS[option.valueMode],
-      });
+        description: formatCliHelpParameterDescription({
+          description: option.description,
+          requirement: option.requirement,
+          additionalDetails: CLI_OPTION_VALUE_MODE_DETAILS[option.valueMode],
+        }),
+      };
   }
 }
 
-function renderCliHelpOptionRow(input: {
-  readonly indent: string;
-  readonly names: string;
-  readonly description: string;
-  readonly requirement: ParameterRequirementDescription;
-  readonly additionalDetails: readonly string[];
-}): string {
-  return `${input.indent}${input.names}${CLI_HELP_LAYOUT.columnSeparator}${formatHelpDescription(input)}`;
-}
-
-function appendCommandPart(command: string, part: string): string {
+export function appendCliCommandPart(command: string, part: string): string {
   return part.length === 0
     ? command
     : `${command}${CLI_HELP_LAYOUT.commandPartSeparator}${part}`;
 }
 
-function formatDefaultSubcommandHint(programName: string): string {
+export function formatDefaultCliSubcommandHint(programName: string): string {
   return `Run \`${programName} ${CLI_HELP_TEXT.commandArgument} --help\` for subcommand details.`;
 }
 
@@ -369,7 +335,7 @@ export function formatCliRouterError(
   }
 }
 
-function formatHelpDescription(input: {
+export function formatCliHelpParameterDescription(input: {
   readonly description: string;
   readonly requirement: ParameterRequirementDescription;
   readonly additionalDetails: readonly string[];
@@ -383,6 +349,28 @@ function formatHelpDescription(input: {
     ...defaultDetails,
   ];
   return `${input.description} (${details.join(CLI_HELP_LAYOUT.detailSeparator)})`;
+}
+
+export function renderCliHelpExamples(
+  examples: readonly CliHelpExample[],
+  executableName: string,
+): readonly string[] {
+  return examples.flatMap((example, index) => [
+    ...(index === 0 ? [] : [CLI_HELP_LAYOUT.emptyLine]),
+    `${CLI_HELP_LAYOUT.itemIndent}${example.title}:`,
+    `${CLI_HELP_LAYOUT.nestedItemIndent}${CLI_HELP_TEXT.useWhenPrefix} ${example.useWhen}`,
+    CLI_HELP_LAYOUT.emptyLine,
+    `${CLI_HELP_LAYOUT.nestedItemIndent}${appendCliCommandPart(executableName, example.command)}`,
+    ...(example.expectedResult.length === 0
+      ? []
+      : [
+          CLI_HELP_LAYOUT.emptyLine,
+          `${CLI_HELP_LAYOUT.nestedItemIndent}${CLI_HELP_TEXT.expectedResultHeading}`,
+          ...example.expectedResult.map(
+            (line) => `${CLI_HELP_LAYOUT.resultIndent}${line}`,
+          ),
+        ]),
+  ]);
 }
 
 function formatParameterRequirementDetails(

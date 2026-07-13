@@ -6,6 +6,7 @@ import type {
 import type {
   CliHelpExample,
   CliHelpOption,
+  CliHelpOptionGroup,
   CliHelpOptionSection,
   CliHelpPositional,
   CliHelpSurface,
@@ -96,14 +97,48 @@ export function createCliHelpSurface(input: {
     remarks: input.node.documentation.remarks,
     relatedDocs: input.node.documentation.relatedDocs,
     executable: endpoint.kind === CLI_HELP_ENDPOINT_KIND.executable,
-    options: endpoint.options,
+    optionGroups: projectCliHelpOptionGroups(
+      endpoint.options,
+      endpoint.optionSections,
+    ),
     positionals: endpoint.positionals,
     usages: resolveCliUsages(endpoint, hasChildren),
     examples: [...input.segment.help.examples, ...endpoint.examples],
-    optionSections: endpoint.optionSections,
     subcommandHint: input.segment.help.subcommandHint,
     children: input.childHelp,
   };
+}
+
+function projectCliHelpOptionGroups(
+  options: readonly CliHelpOption[],
+  sections: readonly CliHelpOptionSection[],
+): readonly CliHelpOptionGroup[] {
+  const optionByParameterName = new Map(
+    options.map((option) => [option.parameterName, option]),
+  );
+  const sectionedParameterNames = new Set(
+    sections.flatMap((section) => section.parameterNames),
+  );
+  const groups: CliHelpOptionGroup[] = sections.map((section) => ({
+    heading: section.heading,
+    description: section.description,
+    // Section references are validated before the completed router is exposed.
+    options: section.parameterNames.map(
+      (parameterName) =>
+        optionByParameterName.get(parameterName) as CliHelpOption,
+    ),
+  }));
+  const unsectionedOptions = options.filter(
+    (option) => !sectionedParameterNames.has(option.parameterName),
+  );
+  if (unsectionedOptions.length > 0) {
+    groups.push({
+      heading: null,
+      description: null,
+      options: unsectionedOptions,
+    });
+  }
+  return groups;
 }
 
 export function validateCliCommandHelp(

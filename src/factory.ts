@@ -2,6 +2,7 @@ import type { JsonValue } from "@alpacaloop/core";
 import type {
   ChannelSegmentOverride,
   CommandDocumentation,
+  CommandDocumentationInput,
   EntryChannelBinding,
   EntryDefinition,
   EntryDefinitionWithOutput,
@@ -29,7 +30,7 @@ export function defineEntryTree(root: EntryTreeNode): EntryTreeDefinition {
 export function defineEntryNode(input: {
   readonly name: string;
   readonly description: string;
-  readonly documentation?: CommandDocumentation;
+  readonly documentation?: CommandDocumentationInput;
   readonly segments?: readonly ChannelSegmentOverride[];
   readonly endpoints?: readonly EntryTreeEndpoint[];
   readonly children?: readonly EntryTreeNode[];
@@ -37,7 +38,7 @@ export function defineEntryNode(input: {
   return {
     name: input.name,
     description: input.description,
-    documentation: input.documentation ?? EMPTY_COMMAND_DOCUMENTATION,
+    documentation: normalizeCommandDocumentation(input.documentation),
     segments: input.segments ?? [],
     endpoints: input.endpoints ?? [],
     children: input.children ?? [],
@@ -66,18 +67,10 @@ export function mergeEntryTreeNodes(
         .slice(1)
         .filter((node) => node.description !== first.description)
         .map(() => `${item.frame.path}: conflicting node descriptions`);
-      issues.push(
-        ...item.frame.nodes
-          .slice(1)
-          .filter(
-            (node) =>
-              JSON.stringify(node.documentation) !==
-              JSON.stringify(first.documentation),
-          )
-          .map(
-            () =>
-              `${item.frame.path}: ${ENTRY_TREE_MERGE_ISSUE.conflictingDocumentation}`,
-          ),
+      item.frame.documentation = mergeCommandDocumentation(
+        item.frame.nodes,
+        item.frame.path,
+        issues,
       );
       item.frame.segments = mergeSegments(
         item.frame.nodes,
@@ -99,7 +92,8 @@ export function mergeEntryTreeNodes(
 
     const first = firstNode(item.frame);
     const segments = item.frame.segments;
-    if (!segments) {
+    const documentation = item.frame.documentation;
+    if (!segments || !documentation) {
       throw new EntryTreeDefinitionError([
         `${item.frame.path}: node was not prepared for merging`,
       ]);
@@ -109,7 +103,7 @@ export function mergeEntryTreeNodes(
       defineEntryNode({
         name: first.name,
         description: first.description,
-        documentation: first.documentation,
+        documentation,
         segments,
         endpoints: [
           ...new Set(item.frame.nodes.flatMap((node) => node.endpoints)),
@@ -142,6 +136,7 @@ type MergeFrame = {
   readonly nodes: readonly EntryTreeNode[];
   readonly path: string;
   segments: readonly ChannelSegmentOverride[] | null;
+  documentation: CommandDocumentation | null;
   children: MergeFrame[];
 };
 
@@ -157,8 +152,66 @@ function createMergeFrame(
     nodes,
     path: parentPath ? `${parentPath}/${first.name}` : first.name,
     segments: null,
+    documentation: null,
     children: [],
   };
+}
+
+function normalizeCommandDocumentation(
+  input: CommandDocumentationInput | undefined,
+): CommandDocumentation {
+  if (input === undefined) {
+    return EMPTY_COMMAND_DOCUMENTATION;
+  }
+  return {
+    remarks: input.remarks ?? [],
+    relatedDocs: input.relatedDocs ?? [],
+  };
+}
+
+function mergeCommandDocumentation(
+  nodes: readonly EntryTreeNode[],
+  path: string,
+  issues: string[],
+): CommandDocumentation {
+  const claims = nodes
+    .map((node) => node.documentation)
+    .filter(hasCommandDocumentationClaim);
+  const first = claims[0] ?? EMPTY_COMMAND_DOCUMENTATION;
+  if (
+    claims.slice(1).some((claim) => !sameCommandDocumentation(first, claim))
+  ) {
+    issues.push(`${path}: ${ENTRY_TREE_MERGE_ISSUE.conflictingDocumentation}`);
+  }
+  return first;
+}
+
+function hasCommandDocumentationClaim(
+  documentation: CommandDocumentation,
+): boolean {
+  return (
+    documentation.remarks.length > 0 || documentation.relatedDocs.length > 0
+  );
+}
+
+function sameCommandDocumentation(
+  left: CommandDocumentation,
+  right: CommandDocumentation,
+): boolean {
+  return (
+    sameStringList(left.remarks, right.remarks) &&
+    sameStringList(left.relatedDocs, right.relatedDocs)
+  );
+}
+
+function sameStringList(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
 }
 
 function groupNodes(

@@ -203,6 +203,11 @@ export type CommandDocumentation = {
   readonly relatedDocs: readonly string[];
 };
 
+export type CommandDocumentationInput = {
+  readonly remarks?: readonly string[];
+  readonly relatedDocs?: readonly string[];
+};
+
 export type EntryTreeNode = {
   readonly name: string;
   readonly description: string;

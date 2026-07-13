@@ -89,7 +89,6 @@ describe("entry tree builder types", () => {
     defineEntryNode({
       name: "documented",
       description: "Documented",
-      // @ts-expect-error documentation must be complete when supplied
       documentation: { remarks: ["Remark"] },
     });
 

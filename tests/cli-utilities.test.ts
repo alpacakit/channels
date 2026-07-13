@@ -108,14 +108,19 @@ describe("CLI utility APIs", () => {
     if (!surface) {
       return;
     }
-    const option = surface.options[0];
+    const option = surface.optionGroups.flatMap((group) => group.options)[0];
     expect(option?.kind).toBe(CLI_OPTION_KIND.value);
     if (option?.kind === CLI_OPTION_KIND.value) {
       expect(option.valueName).toBe("count");
     }
-    expect(renderCliHelp(surface, { programName: "tool generate" })).toContain(
-      "--generation <count>",
-    );
+    expect(
+      renderCliHelp(surface, {
+        executableName: "tool",
+        programName: "tool generate",
+        path: ["generate"],
+        withDescription: false,
+      }),
+    ).toContain("--generation <count>");
   });
 
   it("renders negated and repeatable option forms", () => {
@@ -164,7 +169,12 @@ describe("CLI utility APIs", () => {
         }),
       ),
     );
-    const help = renderCliHelp(router.help, { programName: "tool" });
+    const help = renderCliHelp(router.help, {
+      executableName: "tool",
+      programName: "tool",
+      path: [],
+      withDescription: false,
+    });
     expect(help).toContain("--verbose, --no-verbose");
     expect(help).toContain("comma-separated or repeatable");
   });
@@ -404,6 +414,70 @@ describe("entry tree composition and projection errors", () => {
         }),
       ]),
     ).toThrow("conflicting cli segment overrides");
+  });
+
+  it("treats empty documentation as no merge claim", () => {
+    const documentation = {
+      relatedDocs: ["config"],
+      remarks: ["Shared guidance."],
+    };
+    const [merged] = mergeEntryTreeNodes([
+      defineEntryNode({ name: "config", description: "Config" }),
+      defineEntryNode({
+        name: "config",
+        description: "Config",
+        documentation,
+      }),
+      defineEntryNode({
+        name: "config",
+        description: "Config",
+        documentation: {
+          remarks: ["Shared guidance."],
+          relatedDocs: ["config"],
+        },
+      }),
+    ]);
+
+    expect(merged?.documentation).toEqual(documentation);
+    expect(
+      defineEntryNode({
+        name: "partial",
+        description: "Partial",
+        documentation: { remarks: ["Remark"] },
+      }).documentation,
+    ).toEqual({ remarks: ["Remark"], relatedDocs: [] });
+  });
+
+  it("rejects only differing non-empty documentation claims", () => {
+    expect(() =>
+      mergeEntryTreeNodes([
+        defineEntryNode({
+          name: "config",
+          description: "Config",
+          documentation: { remarks: ["First"] },
+        }),
+        defineEntryNode({
+          name: "config",
+          description: "Config",
+          documentation: { remarks: ["Second"] },
+        }),
+      ]),
+    ).toThrow("conflicting node documentation");
+
+    expect(() =>
+      mergeEntryTreeNodes([
+        defineEntryNode({
+          name: "config",
+          description: "Config",
+          documentation: { remarks: ["First", "Second"] },
+        }),
+        defineEntryNode({
+          name: "config",
+          description: "Config",
+          documentation: { remarks: ["Second", "First"] },
+        }),
+      ]),
+    ).toThrow("conflicting node documentation");
   });
 
   it("merges deeply nested trees without recursive stack growth", () => {

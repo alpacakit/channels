@@ -6,6 +6,7 @@ import type {
   ErasedEntryDefinition,
   ValueShape,
 } from "./model.js";
+import { visitEntryTree } from "./schema.js";
 import {
   ENTRY_OUTPUT_DESCRIPTION_KIND,
   PARAMETER_PRESENCE,
@@ -58,7 +59,6 @@ export type CommandDescription = {
 type EntryDescriptionFrame = {
   readonly node: EntryTreeNode;
   readonly path: CommandPath;
-  readonly expanded: boolean;
 };
 
 export function describeEntry(entry: ErasedEntryDefinition): EntryDescription {
@@ -83,34 +83,14 @@ export function describeEntryTree(
   tree: EntryTreeDefinition,
 ): CommandDescription {
   const frames = new Map<EntryTreeNode, CommandDescription>();
-  const stack: EntryDescriptionFrame[] = [
-    { node: tree.root, path: [], expanded: false },
-  ];
-
-  while (stack.length > 0) {
-    const current = stack.pop();
-    if (!current) {
-      continue;
-    }
-    if (!current.expanded) {
-      stack.push({ ...current, expanded: true });
-      for (
-        let index = current.node.children.length - 1;
-        index >= 0;
-        index -= 1
-      ) {
-        const child = current.node.children[index];
-        if (child) {
-          stack.push({
-            node: child,
-            path: [...current.path, child.name],
-            expanded: false,
-          });
-        }
-      }
-      continue;
-    }
-
+  const entries: EntryDescriptionFrame[] = [];
+  visitEntryTree(tree, {
+    visitNode(node, path) {
+      entries.push({ node, path: path.slice(1) });
+    },
+    visitEndpoint() {},
+  });
+  for (const current of entries.reverse()) {
     frames.set(current.node, {
       path: current.path,
       name: current.node.name,

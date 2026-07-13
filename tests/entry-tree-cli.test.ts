@@ -267,21 +267,24 @@ describe("CLI entry tree router", () => {
     const hintHelp = router.help.children.find(
       (child) => child.name === "hint",
     );
-    const verboseHelp = hintHelp?.options.find(
+    const hintOptions = hintHelp?.optionGroups.flatMap(
+      (group) => group.options,
+    );
+    const verboseHelp = hintOptions?.find(
       (option) => option.parameterName === "verbose",
     );
     expect(verboseHelp?.kind).toBe(CLI_OPTION_KIND.booleanFlag);
     if (verboseHelp?.kind === CLI_OPTION_KIND.booleanFlag) {
       expect(verboseHelp.negativeFlags).toEqual(["--no-verbose"]);
     }
-    const queryHelp = hintHelp?.options.find(
+    const queryHelp = hintOptions?.find(
       (option) => option.parameterName === "query",
     );
     expect(queryHelp).toMatchObject({
       kind: CLI_OPTION_KIND.value,
       valueMode: CLI_OPTION_VALUE_MODE.replace,
     });
-    const tagHelp = hintHelp?.options.find(
+    const tagHelp = hintOptions?.find(
       (option) => option.parameterName === "tag",
     );
     expect(tagHelp).toMatchObject({
@@ -410,11 +413,12 @@ describe("CLI entry tree router", () => {
       valueName: "TARGET",
       variadic: false,
     });
-    const maxDepthOption = router.help.options.find(
+    const options = router.help.optionGroups.flatMap((group) => group.options);
+    const maxDepthOption = options.find(
       (option) => option.parameterName === "maxDepth",
     );
     expect(maxDepthOption?.flags).toEqual(["--max-depth"]);
-    const secretIdOption = router.help.options.find(
+    const secretIdOption = options.find(
       (option) => option.parameterName === "secret_id",
     );
     expect(secretIdOption?.flags).toEqual(["--secret-id"]);
@@ -502,13 +506,15 @@ describe("CLI entry tree router", () => {
 
     expect(
       Object.fromEntries(
-        router.help.options.map((option) => [
-          option.parameterName,
-          option.requirement.kind ===
-          PARAMETER_REQUIREMENT_KIND.optionalWithDefault
-            ? option.requirement.defaultValue
-            : undefined,
-        ]),
+        router.help.optionGroups
+          .flatMap((group) => group.options)
+          .map((option) => [
+            option.parameterName,
+            option.requirement.kind ===
+            PARAMETER_REQUIREMENT_KIND.optionalWithDefault
+              ? option.requirement.defaultValue
+              : undefined,
+          ]),
       ),
     ).toEqual({ text: "value", count: 2, enabled: false, tags: ["core"] });
     expect(router.help.positionals[0]?.requirement).toEqual({

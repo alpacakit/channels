@@ -3,6 +3,7 @@ import {
   bindCliEntry,
   CLI_HELP_USAGE_KIND,
   createCliRouter,
+  listCliHelpSurfaces,
   overrideCliSegment,
   renderCliHelp,
 } from "../src/cli.js";
@@ -174,21 +175,36 @@ describe("CLI help editorial projection", () => {
       usages: ["--first <FIRST> [TARGET]"],
       remarks: ["Creation is idempotent."],
       relatedDocs: ["creation"],
-      optionSections: [
+      optionGroups: [
         {
           heading: "Selection",
           description: "Choose the input.",
-          parameterNames: ["second", "first"],
+          options: [{ parameterName: "second" }, { parameterName: "first" }],
         },
       ],
     });
     expect(list?.usages).toEqual(["[options] [TARGET]"]);
+    expect(list?.optionGroups).toMatchObject([
+      {
+        heading: null,
+        description: null,
+        options: [{ parameterName: "first" }, { parameterName: "second" }],
+      },
+    ]);
   });
 
   it("renders every projected editorial field in the default flat format", () => {
-    const rendered = renderCliHelp(createCliRouter(createHelpTree()).help, {
-      programName: "alpaca",
-    });
+    const root = createCliRouter(createHelpTree()).help;
+    const rendered = listCliHelpSurfaces(root)
+      .map(({ surface, path }) =>
+        renderCliHelp(surface, {
+          executableName: "alpaca",
+          programName: ["alpaca", ...path].join(" "),
+          path,
+          withDescription: true,
+        }),
+      )
+      .join("\n\n---\n\n");
 
     expect(rendered).toContain("Usage: alpaca create --first <FIRST> [TARGET]");
     expect(rendered).toContain("Root remark.");
