@@ -205,7 +205,10 @@ describe("CLI utility APIs", () => {
     }
   });
 
-  it("rejects a valueName on boolean flag options", () => {
+  it.each([
+    "boolean",
+    "VERBOSE",
+  ])("rejects an authored valueName (%s) on boolean flag options", (valueName) => {
     const entry = defineEntry({
       name: "verbose",
       parameters: [
@@ -232,7 +235,7 @@ describe("CLI utility APIs", () => {
                     {
                       kind: CLI_ARG_KIND.option,
                       parameterName: "verbose",
-                      valueName: "boolean",
+                      valueName,
                     },
                   ],
                 }),
@@ -534,7 +537,8 @@ describe("entry tree composition and projection errors", () => {
   it("carries a valid EntryInputError parameter and rejects an unknown one", () => {
     const resolve = (parameterName: string) => {
       const entry = defineEntry({
-        ...CountEntry,
+        name: CountEntry.name,
+        parameters: CountEntry.parameters,
         project: () => {
           throw new EntryInputError(["invalid combination"], {
             kind: ENTRY_INPUT_TARGET_KIND.parameter,

@@ -1,3 +1,4 @@
+import { registerAuthoredCliValueName } from "./cli-internal.js";
 import {
   type CLI_BOOLEAN_MODE,
   CLI_HELP_USAGE_KIND,
@@ -204,7 +205,7 @@ function normalizeCliArgBinding<Name extends string>(
   input: CliArgBindingInput<Name>,
 ): CliArgBinding<Name> {
   if (input.kind === CLI_ARG_KIND.option) {
-    return {
+    const binding: CliArgBinding<Name> = {
       kind: input.kind,
       parameterName: input.parameterName,
       flags: input.flags ?? [defaultCliOptionFlag(input.parameterName)],
@@ -214,6 +215,10 @@ function normalizeCliArgBinding<Name extends string>(
       negated: input.negated ?? false,
       repeatable: input.repeatMode === CLI_OPTION_VALUE_MODE.commaOrRepeat,
     };
+    if (input.valueName !== undefined) {
+      registerAuthoredCliValueName(binding);
+    }
+    return binding;
   }
   return {
     kind: input.kind,

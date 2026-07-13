@@ -183,7 +183,7 @@ export type EntryDefinitionInput<
   Projection,
   Output extends JsonValue = JsonValue,
 > = EntryDefinitionBase<Name, Parameters, Projection> & {
-  readonly output?: OutputContract<Output> | null;
+  readonly output?: OutputContract<Output>;
 };
 
 export type EntryDefinition<

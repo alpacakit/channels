@@ -165,7 +165,7 @@ describe("entry tree builder types", () => {
     void missingDefaulted;
   });
 
-  it("stores only non-default CLI binding choices", () => {
+  it("accepts only non-default CLI binding authoring choices", () => {
     bindCliEntry({
       parameters: [
         {

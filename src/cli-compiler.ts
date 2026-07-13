@@ -4,6 +4,7 @@ import {
   PARAMETER_BINDING_ISSUE_KIND,
   type ParameterBindingIssue,
 } from "./binding-compiler.js";
+import { hasAuthoredCliValueName } from "./cli-internal.js";
 import {
   CLI_ARG_KIND,
   type CliArgBinding,
@@ -18,7 +19,6 @@ import {
   CLI_OPTION_KIND,
   CLI_OPTION_VALUE_MODE,
   CLI_POSITIONAL_PLAN_KIND,
-  defaultCliValueName,
 } from "./cli-values.js";
 import type { EntryTreeEndpoint, ErasedParameterDefinition } from "./model.js";
 import { PARAMETER_REQUIREMENT_KIND, VALUE_SHAPE_KIND } from "./values.js";
@@ -244,7 +244,7 @@ function compileCliBooleanOption(
       valueMode: CLI_OPTION_VALUE_MODE.replace,
     };
   }
-  if (row.valueName !== defaultCliValueName(parameter.name)) {
+  if (hasAuthoredCliValueName(row)) {
     issues.push(
       `${location}: valueName contradicts flag booleanMode for ${row.parameterName}`,
     );

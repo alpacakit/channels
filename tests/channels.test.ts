@@ -8,6 +8,7 @@ import {
   defineParameter,
   ENTRY_DECODE_RESULT_KIND,
   type EntryDefinition,
+  type EntryDefinitionInput,
   type EntryDefinitionWithOutput,
   EntryInputError,
   EntryOutputContractError,
@@ -251,6 +252,9 @@ describe("@alpacaloop/channels output contract", () => {
       >
     >().toEqualTypeOf<
       EntryDefinitionWithOutput<"output", readonly [], null, TestOutput>
+    >();
+    expectTypeOf<{ readonly output: null }>().not.toMatchTypeOf<
+      Pick<EntryDefinitionInput<"outputless", readonly [], null>, "output">
     >();
     expect(output).toEqual({ status: "ok", count: 2 });
   });
