@@ -165,31 +165,58 @@ export type ParameterValues<Parameters extends ParameterSet> = {
   readonly [Parameter in Parameters[number] as OmittedParameter<Parameter>["name"]]?: ParameterValue<Parameter>;
 };
 
-export type EntryDefinition<
+type EntryDefinitionBase<
   Name extends string,
   Parameters extends ParameterSet,
   Projection,
-  Output extends JsonValue = JsonValue,
 > = {
   readonly name: Name;
   readonly parameters: Parameters;
   readonly project: (input: {
     readonly values: ParameterValues<Parameters>;
   }) => Projection;
-  readonly output?: OutputContract<Output>;
 };
+
+export type EntryDefinitionInput<
+  Name extends string,
+  Parameters extends ParameterSet,
+  Projection,
+  Output extends JsonValue = JsonValue,
+> = EntryDefinitionBase<Name, Parameters, Projection> & {
+  readonly output?: OutputContract<Output> | null;
+};
+
+export type EntryDefinition<
+  Name extends string,
+  Parameters extends ParameterSet,
+  Projection,
+  Output extends JsonValue = JsonValue,
+> =
+  | (EntryDefinitionBase<Name, Parameters, Projection> & {
+      readonly output: null;
+    })
+  | (EntryDefinitionBase<Name, Parameters, Projection> & {
+      readonly output: OutputContract<Output>;
+    });
 
 export type ErasedOutputContract = {
   readonly schema: z.ZodType;
   decode(input: unknown): CodecDecodeResult<JsonValue>;
 };
 
-export type ErasedEntryDefinition = {
-  readonly name: string;
-  readonly parameters: ParameterSet;
-  readonly project: (input: never) => unknown;
-  readonly output?: ErasedOutputContract;
-};
+export type ErasedEntryDefinition =
+  | {
+      readonly name: string;
+      readonly parameters: ParameterSet;
+      readonly project: (input: never) => unknown;
+      readonly output: null;
+    }
+  | {
+      readonly name: string;
+      readonly parameters: ParameterSet;
+      readonly project: (input: never) => unknown;
+      readonly output: ErasedOutputContract;
+    };
 
 export type EntryTreeDefinition = {
   readonly root: EntryTreeNode;
@@ -245,7 +272,17 @@ export type EntryDefinitionWithOutput<
   Parameters extends ParameterSet,
   Projection,
   Output extends JsonValue,
-> = EntryDefinition<Name, Parameters, Projection, Output> & {
+> = Extract<
+  EntryDefinition<Name, Parameters, Projection, Output>,
+  { readonly output: OutputContract<Output> }
+>;
+
+export type EntryDefinitionInputWithOutput<
+  Name extends string,
+  Parameters extends ParameterSet,
+  Projection,
+  Output extends JsonValue,
+> = EntryDefinitionInput<Name, Parameters, Projection, Output> & {
   readonly output: OutputContract<Output>;
 };
 
@@ -265,7 +302,7 @@ export function defineEntry<
   Projection,
   Output extends JsonValue,
 >(
-  entry: EntryDefinitionWithOutput<Name, Parameters, Projection, Output>,
+  entry: EntryDefinitionInputWithOutput<Name, Parameters, Projection, Output>,
 ): EntryDefinitionWithOutput<Name, Parameters, Projection, Output>;
 export function defineEntry<
   const Name extends string,
@@ -273,7 +310,7 @@ export function defineEntry<
   Projection,
   Output extends JsonValue = JsonValue,
 >(
-  entry: EntryDefinition<Name, Parameters, Projection, Output>,
+  entry: EntryDefinitionInput<Name, Parameters, Projection, Output>,
 ): EntryDefinition<Name, Parameters, Projection, Output>;
 export function defineEntry<
   const Name extends string,
@@ -281,9 +318,12 @@ export function defineEntry<
   Projection,
   Output extends JsonValue = JsonValue,
 >(
-  entry: EntryDefinition<Name, Parameters, Projection, Output>,
+  entry: EntryDefinitionInput<Name, Parameters, Projection, Output>,
 ): EntryDefinition<Name, Parameters, Projection, Output> {
-  return entry;
+  if (entry.output === undefined) {
+    return { ...entry, output: null };
+  }
+  return { ...entry, output: entry.output };
 }
 
 export function required(): RequiredParameterRequirement {

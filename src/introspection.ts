@@ -71,7 +71,7 @@ export function describeEntry(entry: ErasedEntryDefinition): EntryDescription {
     })),
     output: {
       kind:
-        entry.output === undefined
+        entry.output === null
           ? ENTRY_OUTPUT_DESCRIPTION_KIND.none
           : ENTRY_OUTPUT_DESCRIPTION_KIND.typed,
     },

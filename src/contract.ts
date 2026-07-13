@@ -36,7 +36,7 @@ export function requireEntryOutput<
 >(
   entry: EntryDefinition<Name, Parameters, Projection, Output>,
 ): OutputContract<Output> {
-  if (!entry.output) {
+  if (entry.output === null) {
     throw new Error(`Entry ${entry.name} does not declare an output contract`);
   }
   return entry.output;

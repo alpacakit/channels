@@ -7,9 +7,11 @@ import {
   defineEntryEndpoint,
   defineParameter,
   ENTRY_DECODE_RESULT_KIND,
+  type EntryDefinition,
   type EntryDefinitionWithOutput,
   EntryInputError,
   EntryOutputContractError,
+  type OutputContract,
   optional,
   requireEntryOutput,
   verifyEntryOutput,
@@ -242,7 +244,20 @@ describe("@alpacaloop/channels output contract", () => {
         { readonly status: "ok" }
       >
     >();
+    expectTypeOf<
+      Extract<
+        EntryDefinition<"output", readonly [], null, TestOutput>,
+        { readonly output: OutputContract<TestOutput> }
+      >
+    >().toEqualTypeOf<
+      EntryDefinitionWithOutput<"output", readonly [], null, TestOutput>
+    >();
     expect(output).toEqual({ status: "ok", count: 2 });
+  });
+
+  it("normalizes an omitted output contract to null", () => {
+    expect(Object.hasOwn(OutputlessEntry, "output")).toBe(true);
+    expect(OutputlessEntry.output).toBeNull();
   });
 
   it.each([
