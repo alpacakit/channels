@@ -2,7 +2,7 @@ import {
   CODEC_DECODE_RESULT_KIND,
   createSchemaRuntimeCodec,
   type JsonValue,
-} from "@alpacaloop/core";
+} from "@alpacakit/core";
 import type { z } from "zod";
 import type {
   EntryDefinition,

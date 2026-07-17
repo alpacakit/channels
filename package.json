@@ -1,5 +1,5 @@
 {
-  "name": "@alpacaloop/channels",
+  "name": "@alpacakit/channels",
   "version": "0.1.0-beta.19",
   "description": "Neutral multi-channel entry definitions with CLI and MCP binding adapters.",
   "private": true,
@@ -31,7 +31,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@alpacaloop/core": "workspace:*"
+    "@alpacakit/core": "workspace:*"
   },
   "peerDependencies": {
     "zod": "^4.3.6"

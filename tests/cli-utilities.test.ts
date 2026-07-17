@@ -2,7 +2,7 @@ import {
   CODEC_DECODE_RESULT_KIND,
   type JsonValue,
   jsonValueSchema,
-} from "@alpacaloop/core";
+} from "@alpacakit/core";
 import { describe, expect, it } from "vitest";
 import {
   bindCliEntry,

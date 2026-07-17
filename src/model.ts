@@ -2,7 +2,7 @@ import type {
   CodecDecodeResult,
   JsonValue,
   RuntimeCodec,
-} from "@alpacaloop/core";
+} from "@alpacakit/core";
 import type { z } from "zod";
 import {
   type Channel,

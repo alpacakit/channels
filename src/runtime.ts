@@ -1,4 +1,4 @@
-import { CODEC_DECODE_RESULT_KIND, type JsonValue } from "@alpacaloop/core";
+import { CODEC_DECODE_RESULT_KIND, type JsonValue } from "@alpacakit/core";
 import { findParameter } from "./internal.js";
 import type {
   ErasedEntryDefinition,

@@ -1,4 +1,4 @@
-import type { JsonValue } from "@alpacaloop/core";
+import type { JsonValue } from "@alpacakit/core";
 import { CLI_VALUE_COERCION, type CliValueCoercion } from "./cli-model.js";
 import type { ValueShape } from "./model.js";
 import { VALUE_SHAPE_KIND } from "./values.js";

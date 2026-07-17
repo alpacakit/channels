@@ -1,7 +1,4 @@
-import {
-  createSchemaRuntimeCodec,
-  readonlyArraySchema,
-} from "@alpacaloop/core";
+import { createSchemaRuntimeCodec, readonlyArraySchema } from "@alpacakit/core";
 import { z } from "zod";
 import type { ValueCodec, ValueForShape, ValueShape } from "./model.js";
 import { VALUE_SHAPE_KIND } from "./values.js";

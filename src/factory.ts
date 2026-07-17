@@ -1,4 +1,4 @@
-import type { JsonValue } from "@alpacaloop/core";
+import type { JsonValue } from "@alpacakit/core";
 import type {
   ChannelSegmentOverride,
   CommandDocumentation,

@@ -1,4 +1,4 @@
-import type { JsonObject } from "@alpacaloop/core";
+import type { JsonObject } from "@alpacakit/core";
 import type { z } from "zod";
 import {
   type CompiledParameterBinding,

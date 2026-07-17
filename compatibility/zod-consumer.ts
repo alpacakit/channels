@@ -3,7 +3,7 @@ import {
   defineEntry,
   defineParameter,
   required,
-} from "@alpacaloop/channels";
+} from "@alpacakit/channels";
 import { z } from "zod";
 
 const consumerSchema: z.ZodType<string> = z.string();

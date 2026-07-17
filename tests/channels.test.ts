@@ -128,7 +128,7 @@ const NonObjectSchemaEndpoint = defineEntryEndpoint(
   bindMcpEntry(),
 );
 
-describe("@alpacaloop/channels MCP binding", () => {
+describe("@alpacakit/channels MCP binding", () => {
   it("generates an exposed-parameter input schema and normalizes arguments", () => {
     const mcpEndpoint = createMcpEndpoint(TestEndpoint);
     const schema = mcpEndpoint.inputSchema;
@@ -226,7 +226,7 @@ describe("@alpacaloop/channels MCP binding", () => {
   });
 });
 
-describe("@alpacaloop/channels output contract", () => {
+describe("@alpacakit/channels output contract", () => {
   it("infers and verifies a declared output", () => {
     const output = verifyEntryOutput(TestOutputEntry, {
       status: "ok",
