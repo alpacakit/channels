@@ -1,4 +1,4 @@
-# @alpacaloop/channels
+# @alpacakit/channels
 
 Define an entry once, bind it to CLI and MCP, and use the same typed endpoint
 for argument parsing, help, MCP schemas, input decoding, and projection.
@@ -109,7 +109,7 @@ import {
   defineParameter,
   optional,
   required,
-} from "@alpacaloop/channels";
+} from "@alpacakit/channels";
 
 const HintEntry = defineEntry({
   name: "hint",
@@ -170,7 +170,7 @@ optional in `values`.
 A CLI Binding maps the Entry parameters to argv syntax:
 
 ```ts
-import { bindCliEntry } from "@alpacaloop/channels/cli";
+import { bindCliEntry } from "@alpacakit/channels/cli";
 
 const HintCliBinding = bindCliEntry({
   parameters: [
@@ -204,7 +204,7 @@ facts already belong to the Entry.
 An MCP Binding selects the Entry parameters exposed as tool input:
 
 ```ts
-import { bindMcpEntry } from "@alpacaloop/channels/mcp";
+import { bindMcpEntry } from "@alpacakit/channels/mcp";
 
 const HintMcpBinding = bindMcpEntry("query", "limit");
 ```
@@ -226,7 +226,7 @@ The mapping is:
 An Endpoint is the public execution identity for the operation:
 
 ```ts
-import { defineEntryEndpoint } from "@alpacaloop/channels";
+import { defineEntryEndpoint } from "@alpacakit/channels";
 
 const HintEndpoint = defineEntryEndpoint(
   HintEntry,
@@ -264,7 +264,7 @@ Place the Endpoint under the `hint` command:
 import {
   defineEntryNode,
   defineEntryTree,
-} from "@alpacaloop/channels";
+} from "@alpacakit/channels";
 
 const CommandTree = defineEntryTree(
   defineEntryNode({
@@ -326,7 +326,7 @@ my-app
 import {
   createCliRouter,
   isCliResolvedEndpoint,
-} from "@alpacaloop/channels/cli";
+} from "@alpacakit/channels/cli";
 
 const router = createCliRouter(CommandTree);
 
@@ -413,7 +413,7 @@ per-invocation decoding:
 import {
   createMcpEndpoint,
   isMcpResolved,
-} from "@alpacaloop/channels/mcp";
+} from "@alpacakit/channels/mcp";
 
 const HintMcpEndpoint = createMcpEndpoint(HintEndpoint);
 ```
@@ -556,9 +556,9 @@ The neutral model and channel adapters are intentionally separate imports:
 
 | Import | Purpose |
 | --- | --- |
-| `@alpacaloop/channels` | Parameters, codecs, entries, output contracts, and entry-tree builders |
-| `@alpacaloop/channels/cli` | CLI bindings/coercion, router, typed executor, help traversal, and text renderers |
-| `@alpacaloop/channels/mcp` | MCP binding, the compiled endpoint handle, output schema projection, and the resolved-result guard |
+| `@alpacakit/channels` | Parameters, codecs, entries, output contracts, and entry-tree builders |
+| `@alpacakit/channels/cli` | CLI bindings/coercion, router, typed executor, help traversal, and text renderers |
+| `@alpacakit/channels/mcp` | MCP binding, the compiled endpoint handle, output schema projection, and the resolved-result guard |
 
 `zod` is a peer dependency. In this workspace, depend on the package with
 `workspace:*` and use the workspace Zod version.
@@ -591,7 +591,7 @@ Use `overrideCliSegment()` when the CLI spelling differs from the logical node
 name:
 
 ```ts
-import { overrideCliSegment } from "@alpacaloop/channels/cli";
+import { overrideCliSegment } from "@alpacakit/channels/cli";
 
 defineEntryNode({
   name: "hint",
@@ -699,11 +699,11 @@ import {
   defineEntry,
   defineEntryEndpoint,
   verifyEntryOutput,
-} from "@alpacaloop/channels";
+} from "@alpacakit/channels";
 import {
   bindMcpEntry,
   createMcpOutputSchema,
-} from "@alpacaloop/channels/mcp";
+} from "@alpacakit/channels/mcp";
 import { z } from "zod";
 
 const HintOutputSchema = z

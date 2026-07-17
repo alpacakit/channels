@@ -1,7 +1,7 @@
 # Zod consumer compatibility fixture
 
 Copy `zod-consumer.ts` into an isolated TypeScript project that installs a
-packed `@alpacaloop/channels` build, then type-check it with `skipLibCheck:
+packed `@alpacakit/channels` build, then type-check it with `skipLibCheck:
 false`.
 
 The supported matrix currently covers Zod 4.3.6 and 4.4.3. Both versions must
