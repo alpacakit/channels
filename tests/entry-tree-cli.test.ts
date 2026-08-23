@@ -211,6 +211,25 @@ function createAcceptanceTree() {
 }
 
 describe("CLI entry tree router", () => {
+  it("exposes canonical endpoint locations without aliases", () => {
+    const locations = createCliRouter(createAcceptanceTree())
+      .endpointLocations.map((location) => ({
+        entry: location.endpoint.entry.name,
+        path: location.path,
+      }))
+      .sort((left, right) =>
+        left.path.join(" ").localeCompare(right.path.join(" ")),
+      );
+
+    expect(locations).toEqual([
+      { entry: "default", path: [] },
+      { entry: "collect", path: ["collect"] },
+      { entry: "hint", path: ["h"] },
+      { entry: "deep", path: ["h", "show"] },
+      { entry: "deep", path: ["one", "two", "three", "four"] },
+    ]);
+  });
+
   it("narrows only the resolved endpoint with matching identity", () => {
     const router = createCliRouter(
       defineEntryTree(

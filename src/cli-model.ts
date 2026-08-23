@@ -344,6 +344,11 @@ export type CliHelpSurfaceLocation = {
   readonly path: CliCommandPath;
 };
 
+export type CliEndpointLocation = {
+  readonly endpoint: EntryTreeEndpoint;
+  readonly path: CliCommandPath;
+};
+
 export type CliRouterResult =
   | {
       readonly kind: typeof CLI_ROUTER_RESULT_KIND.resolved;
@@ -402,5 +407,6 @@ export function isCliResolvedEndpoint<const Endpoint extends EntryTreeEndpoint>(
 export interface CliRouter {
   readonly help: CliHelpSurface;
   readonly endpoints: readonly EntryTreeEndpoint[];
+  readonly endpointLocations: readonly CliEndpointLocation[];
   resolve(argv: readonly string[]): CliRouterResult;
 }

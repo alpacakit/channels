@@ -79,8 +79,7 @@ export function findCliHelpSurfaceLocation(
   const path: string[] = [];
   for (const token of commandPath) {
     const child = current.children.find(
-      (candidate) =>
-        candidate.token === token || candidate.aliases.includes(token),
+      (candidate) => candidate.token === token,
     );
     if (!child) {
       return null;
@@ -122,6 +121,42 @@ export function listCliHelpSurfaces(
     );
   }
   return locations;
+}
+
+export type CliHelpSurfaceProjection = {
+  include(location: CliHelpSurfaceLocation): boolean;
+  compare?(left: CliHelpSurfaceLocation, right: CliHelpSurfaceLocation): number;
+};
+
+/**
+ * Projects one immutable help tree without recreating its structural fields.
+ * The root is always retained; `include` and `compare` are applied to children.
+ */
+export function projectCliHelpSurface(
+  root: CliHelpSurface,
+  projection: CliHelpSurfaceProjection,
+): CliHelpSurface {
+  const projected = new Map<CliHelpSurface, CliHelpSurface>();
+  const pending = [...listCliHelpSurfaces(root)].reverse();
+  for (const location of pending) {
+    const children = location.surface.children.flatMap((child) => {
+      const childPath = [...location.path, child.token ?? child.name];
+      const childLocation = { surface: child, path: childPath };
+      if (!projection.include(childLocation)) return [];
+      const projectedChild = projected.get(child);
+      return projectedChild === undefined
+        ? []
+        : [{ surface: projectedChild, path: childPath }];
+    });
+    if (projection.compare !== undefined) {
+      children.sort(projection.compare);
+    }
+    projected.set(location.surface, {
+      ...location.surface,
+      children: children.map((child) => child.surface),
+    });
+  }
+  return projected.get(root) ?? { ...root, children: [] };
 }
 
 function joinCliHelpSections(

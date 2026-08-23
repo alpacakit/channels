@@ -14,6 +14,7 @@ import {
 import {
   CLI_ROUTER_RESULT_KIND,
   type CliGroupHelp,
+  type CliEndpointLocation,
   type CliHelpSurface,
   type CliRouter,
   type CliRouterResult,
@@ -28,7 +29,6 @@ import {
 } from "./cli-values.js";
 import type {
   EntryTreeDefinition,
-  EntryTreeEndpoint,
   EntryTreeNode,
   RawValueMap,
 } from "./model.js";
@@ -88,15 +88,19 @@ type CompiledCliNode = {
 
 export function createCliRouter(tree: EntryTreeDefinition): CliRouter {
   const root = compileCliTree(tree);
+  const endpointLocations = listCliEndpointLocations(root);
   return {
     help: root.help,
-    endpoints: listCliEndpoints(root),
+    endpoints: endpointLocations.map((location) => location.endpoint),
+    endpointLocations,
     resolve: (argv) => resolveCli(root, argv),
   };
 }
 
-function listCliEndpoints(root: CompiledCliNode): readonly EntryTreeEndpoint[] {
-  const endpoints: EntryTreeEndpoint[] = [];
+function listCliEndpointLocations(
+  root: CompiledCliNode,
+): readonly CliEndpointLocation[] {
+  const locations: CliEndpointLocation[] = [];
   const visited = new Set<CompiledCliNode>();
   const pending = [root];
   while (pending.length > 0) {
@@ -106,11 +110,14 @@ function listCliEndpoints(root: CompiledCliNode): readonly EntryTreeEndpoint[] {
     }
     visited.add(node);
     if (node.endpoint !== null) {
-      endpoints.push(node.endpoint.endpoint);
+      locations.push({
+        endpoint: node.endpoint.endpoint,
+        path: node.path.slice(1),
+      });
     }
     pending.push(...node.childByToken.values());
   }
-  return endpoints;
+  return locations;
 }
 
 function compileCliTree(tree: EntryTreeDefinition): CompiledCliNode {
@@ -124,16 +131,34 @@ function compileCliTree(tree: EntryTreeDefinition): CompiledCliNode {
     }
   >();
 
-  visitEntryTree(tree, {
-    visitNode(node, path) {
-      nodeRecords.set(node, {
-        path,
-        segment: cliSegmentFor(node, path, node === tree.root, issues),
-        endpoint: cliEndpointFor(node, path, issues),
-      });
-    },
-    visitEndpoint() {},
-  });
+  const nodeQueue: {
+    readonly node: EntryTreeNode;
+    readonly parentPath: readonly string[];
+    readonly root: boolean;
+  }[] = [{ node: tree.root, parentPath: [], root: true }];
+  for (const current of nodeQueue) {
+    const segment = cliSegmentFor(
+      current.node,
+      current.parentPath,
+      current.root,
+      issues,
+    );
+    const path = current.root
+      ? [current.node.name]
+      : [...current.parentPath, segment.token];
+    nodeRecords.set(current.node, {
+      path,
+      segment,
+      endpoint: cliEndpointFor(current.node, path, issues),
+    });
+    nodeQueue.push(
+      ...current.node.children.map((node) => ({
+        node,
+        parentPath: path,
+        root: false,
+      })),
+    );
+  }
 
   const publicNodes = new Map<EntryTreeNode, CompiledCliNode>();
   const pending: EntryTreeNode[] = [];

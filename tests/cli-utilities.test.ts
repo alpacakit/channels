@@ -101,9 +101,10 @@ describe("CLI utility APIs", () => {
     });
   });
 
-  it("renders option value names and locates aliased help surfaces", () => {
+  it("renders option value names and locates only canonical help surfaces", () => {
     const router = createCountRouter();
-    const surface = findCliHelpSurface(router.help, ["g"]);
+    expect(findCliHelpSurface(router.help, ["g"])).toBeNull();
+    const surface = findCliHelpSurface(router.help, ["generate"]);
     expect(surface).not.toBeNull();
     if (!surface) {
       return;

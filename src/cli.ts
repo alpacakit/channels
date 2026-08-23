@@ -1,5 +1,7 @@
 export * from "./cli-executor.js";
 export * from "./cli-model.js";
+export * from "./cli-application.js";
+export * from "./cli-result-envelope.js";
 export * from "./cli-presentation.js";
 export { createCliRouter } from "./cli-tree.js";
 export {

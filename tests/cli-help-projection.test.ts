@@ -4,6 +4,7 @@ import {
   createCliRouter,
   listCliHelpSurfaces,
   overrideCliSegment,
+  projectCliHelpSurface,
   renderCliHelp,
 } from "../src/cli.js";
 import {
@@ -154,6 +155,21 @@ function createHelpTree() {
 }
 
 describe("CLI help editorial projection", () => {
+  it("projects visibility and order without rebuilding help fields", () => {
+    const help = createCliRouter(createHelpTree()).help;
+    const projected = projectCliHelpSurface(help, {
+      include: ({ path }) => path[0] !== "list",
+      compare: (left, right) =>
+        right.path.join(" ").localeCompare(left.path.join(" ")),
+    });
+
+    expect(projected.children.map((child) => child.token)).toEqual([
+      "guide",
+      "create",
+    ]);
+    expect(projected.children[1]?.remarks).toEqual(["Creation is idempotent."]);
+  });
+
   it("projects normalized T1/T2 help and derives omitted usages", () => {
     const help = createCliRouter(createHelpTree()).help;
     const create = help.children[0];
