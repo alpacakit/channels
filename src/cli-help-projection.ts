@@ -76,7 +76,6 @@ export function createCliHelpSurface(input: {
   return {
     name: input.node.name,
     token: input.root ? null : input.segment.token,
-    aliases: input.root ? [] : input.segment.aliases,
     description: input.node.description,
     remarks: input.node.documentation.remarks,
     relatedDocs: input.node.documentation.relatedDocs,

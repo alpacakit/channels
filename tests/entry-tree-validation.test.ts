@@ -110,14 +110,14 @@ describe("Phase-A entry tree definition validation", () => {
     );
   });
 
-  it("rejects duplicate overrides and CLI sibling token or alias collisions", () => {
+  it("rejects duplicate overrides and CLI sibling token collisions", () => {
     expectInvalid(
       node({
         name: "root",
         description: "Root",
         segments: [
-          overrideCliSegment({ token: "one", aliases: [] }),
-          overrideCliSegment({ token: "two", aliases: [] }),
+          overrideCliSegment({ token: "one" }),
+          overrideCliSegment({ token: "two" }),
         ],
         endpoints: [emptyEndpoint()],
       }),
@@ -131,18 +131,18 @@ describe("Phase-A entry tree definition validation", () => {
           node({
             name: "one",
             description: "One",
-            segments: [overrideCliSegment({ token: "first", aliases: ["x"] })],
+            segments: [overrideCliSegment({ token: "x" })],
             endpoints: [emptyEndpoint()],
           }),
           node({
             name: "two",
             description: "Two",
-            segments: [overrideCliSegment({ token: "x", aliases: [] })],
+            segments: [overrideCliSegment({ token: "x" })],
             endpoints: [emptyEndpoint()],
           }),
         ],
       }),
-      "sibling token/alias collision",
+      "sibling token collision",
     );
   });
 
@@ -178,9 +178,8 @@ describe("Phase-A entry tree definition validation", () => {
   });
 
   it.each([
-    { token: "", aliases: [] },
-    { token: "-hidden", aliases: [] },
-    { token: "child", aliases: ["--hidden"] },
+    { token: "" },
+    { token: "-hidden" },
   ])("rejects unreachable CLI child segment %#", (segment) => {
     expectInvalid(
       node({

@@ -71,9 +71,7 @@ function createCountRouter() {
           defineEntryNode({
             name: "generate",
             description: "Generate output",
-            segments: [
-              overrideCliSegment({ token: "generate", aliases: ["g"] }),
-            ],
+            segments: [overrideCliSegment({ token: "generate" })],
             endpoints: [CountEndpoint],
           }),
         ],
@@ -409,29 +407,27 @@ describe("entry tree composition and projection errors", () => {
         defineEntryNode({
           name: "config",
           description: "Config",
-          segments: [overrideCliSegment({ token: "config", aliases: [] })],
+          segments: [overrideCliSegment({ token: "config" })],
         }),
         defineEntryNode({
           name: "config",
           description: "Config",
-          segments: [overrideCliSegment({ token: "settings", aliases: [] })],
+          segments: [overrideCliSegment({ token: "settings" })],
         }),
       ]),
     ).toThrow("conflicting cli segment overrides");
   });
 
   it("merges equivalent segment payloads with different key order", () => {
-    const ordered = overrideCliSegment({ token: "config", aliases: ["cfg"] });
+    const ordered = overrideCliSegment({ token: "config" });
     const payload = ordered.segment as {
       readonly token: string;
-      readonly aliases: readonly string[];
       readonly help: unknown;
     };
     const reverseOrdered = {
       ...ordered,
       segment: {
         help: payload.help,
-        aliases: payload.aliases,
         token: payload.token,
       },
     } as typeof ordered;

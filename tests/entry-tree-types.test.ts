@@ -37,6 +37,13 @@ import {
 } from "../src/mcp.js";
 
 describe("entry tree builder types", () => {
+  it("keeps CLI compatibility aliases out of the segment contract", () => {
+    type SegmentInput = Parameters<typeof overrideCliSegment>[0];
+    type HasAliases = "aliases" extends keyof SegmentInput ? true : false;
+
+    expectTypeOf<HasAliases>().toEqualTypeOf<false>();
+  });
+
   it("keeps parameter-name safety in builders and erases stored endpoint types", () => {
     const entry = defineEntry({
       name: "hint",
@@ -64,7 +71,7 @@ describe("entry tree builder types", () => {
       defineEntryNode({
         name: "tool",
         description: "Tool",
-        segments: [overrideCliSegment({ token: "t", aliases: ["tool"] })],
+        segments: [overrideCliSegment({ token: "t" })],
         endpoints: [endpoint],
       }),
     );

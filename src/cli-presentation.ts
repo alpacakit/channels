@@ -191,10 +191,8 @@ function createCliHelpCommandsSection(
   return [
     CLI_HELP_TEXT.commandsHeading,
     ...surface.children.map((child) => {
-      const names = [child.token ?? child.name, ...child.aliases].join(
-        CLI_HELP_LAYOUT.detailSeparator,
-      );
-      return `${CLI_HELP_LAYOUT.itemIndent}${names}${CLI_HELP_LAYOUT.columnSeparator}${child.description}`;
+      const name = child.token ?? child.name;
+      return `${CLI_HELP_LAYOUT.itemIndent}${name}${CLI_HELP_LAYOUT.columnSeparator}${child.description}`;
     }),
   ];
 }

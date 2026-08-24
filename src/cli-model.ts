@@ -112,7 +112,6 @@ export type CliEntryBinding<Name extends string = string> = {
 
 export type CliSegment = {
   readonly token: string;
-  readonly aliases: readonly string[];
   readonly help: CliGroupHelp;
 };
 
@@ -195,12 +194,10 @@ export function bindCliEntry<
 
 export function overrideCliSegment(segment: {
   readonly token: string;
-  readonly aliases?: readonly string[];
   readonly help?: CliGroupHelpInput;
 }): ChannelSegmentOverride {
   const payload = {
     token: segment.token,
-    aliases: segment.aliases ?? [],
     help: normalizeCliGroupHelp(segment.help),
   } satisfies CliSegment;
   registerChannelPayload(PAYLOAD_KIND.cliSegment, payload);
@@ -312,7 +309,6 @@ export type CliHelpPositional = {
 export type CliHelpSurface = {
   readonly name: string;
   readonly token: string | null;
-  readonly aliases: readonly string[];
   readonly description: string;
   readonly optionGroups: readonly CliHelpOptionGroup[];
   readonly positionals: readonly CliHelpPositional[];
@@ -347,6 +343,8 @@ export type CliHelpSurfaceLocation = {
 export type CliEndpointLocation = {
   readonly endpoint: EntryTreeEndpoint;
   readonly path: CliCommandPath;
+  /** The normalized CLI parameter binding compiled for this exact endpoint. */
+  readonly binding: CliEntryBinding;
 };
 
 export type CliRouterResult =

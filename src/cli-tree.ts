@@ -13,8 +13,8 @@ import {
 } from "./cli-help-projection.js";
 import {
   CLI_ROUTER_RESULT_KIND,
-  type CliGroupHelp,
   type CliEndpointLocation,
+  type CliGroupHelp,
   type CliHelpSurface,
   type CliRouter,
   type CliRouterResult,
@@ -63,11 +63,6 @@ const CLI_PARSE_RESULT_KIND = {
   raw: "raw",
 } as const;
 
-const CLI_SEGMENT_NAME_KIND = {
-  alias: "alias",
-  token: "token",
-} as const;
-
 const CLI_TREE_VALIDATION_ISSUE = {
   subcommandHintWithoutChildren:
     "CLI subcommand hint requires at least one child command",
@@ -113,6 +108,7 @@ function listCliEndpointLocations(
       locations.push({
         endpoint: node.endpoint.endpoint,
         path: node.path.slice(1),
+        binding: node.endpoint.binding,
       });
     }
     pending.push(...node.childByToken.values());
@@ -206,9 +202,6 @@ function compileCliTree(tree: EntryTreeDefinition): CompiledCliNode {
     const childByToken = new Map<string, CompiledCliNode>();
     for (const child of children) {
       childByToken.set(child.segment.token, child);
-      for (const alias of child.segment.aliases) {
-        childByToken.set(alias, child);
-      }
     }
     const compiledNode: CompiledCliNode = {
       path: record.path,
@@ -247,43 +240,32 @@ function cliSegmentFor(
   const override = node.segments.find((row) => row.channel === CHANNEL.cli);
   let segment: CliSegment;
   if (!override) {
-    segment = { token: node.name, aliases: [], help: EMPTY_CLI_GROUP_HELP };
+    segment = { token: node.name, help: EMPTY_CLI_GROUP_HELP };
   } else if (!isCliSegment(override.segment)) {
     issues.push(`${formatTreePath(path)}: invalid CLI segment override`);
-    segment = { token: node.name, aliases: [], help: EMPTY_CLI_GROUP_HELP };
+    segment = { token: node.name, help: EMPTY_CLI_GROUP_HELP };
   } else {
     segment = override.segment;
   }
   validateCliHelpExamples(segment.help.examples, formatTreePath(path), issues);
   if (!root) {
-    validateCliCommandToken(
-      segment.token,
-      CLI_SEGMENT_NAME_KIND.token,
-      path,
-      issues,
-    );
-    for (const alias of segment.aliases) {
-      validateCliCommandToken(alias, CLI_SEGMENT_NAME_KIND.alias, path, issues);
-    }
+    validateCliCommandToken(segment.token, path, issues);
   }
   return segment;
 }
 
 function validateCliCommandToken(
   token: string,
-  kind: (typeof CLI_SEGMENT_NAME_KIND)[keyof typeof CLI_SEGMENT_NAME_KIND],
   path: readonly string[],
   issues: string[],
 ): void {
   if (token.length === 0) {
-    issues.push(
-      `${formatTreePath(path)}: CLI segment ${kind} must not be empty`,
-    );
+    issues.push(`${formatTreePath(path)}: CLI segment token must not be empty`);
     return;
   }
   if (classifyCliArgumentToken(token) !== CLI_ARGUMENT_TOKEN_KIND.value) {
     issues.push(
-      `${formatTreePath(path)}: CLI segment ${kind} ${JSON.stringify(token)} is unreachable`,
+      `${formatTreePath(path)}: CLI segment token ${JSON.stringify(token)} is unreachable`,
     );
   }
 }
@@ -326,15 +308,14 @@ function validateCliChildren(
 ): void {
   const tokens = new Map<string, string>();
   for (const child of children) {
-    for (const token of [child.segment.token, ...child.segment.aliases]) {
-      const owner = tokens.get(token);
-      if (owner !== undefined) {
-        issues.push(
-          `${formatTreePath(path)}: CLI sibling token/alias collision ${JSON.stringify(token)} between ${owner} and ${child.help.name}`,
-        );
-      } else {
-        tokens.set(token, child.help.name);
-      }
+    const token = child.segment.token;
+    const owner = tokens.get(token);
+    if (owner !== undefined) {
+      issues.push(
+        `${formatTreePath(path)}: CLI sibling token collision ${JSON.stringify(token)} between ${owner} and ${child.help.name}`,
+      );
+    } else {
+      tokens.set(token, child.help.name);
     }
   }
 }

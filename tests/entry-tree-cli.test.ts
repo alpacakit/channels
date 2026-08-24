@@ -137,7 +137,7 @@ function createAcceptanceTree() {
         defineEntryNode({
           name: "hint",
           description: "Find hints",
-          segments: [overrideCliSegment({ token: "h", aliases: ["hi"] })],
+          segments: [overrideCliSegment({ token: "h" })],
           endpoints: [HintEndpoint],
           children: [
             defineEntryNode({
@@ -211,22 +211,33 @@ function createAcceptanceTree() {
 }
 
 describe("CLI entry tree router", () => {
-  it("exposes canonical endpoint locations without aliases", () => {
+  it("exposes canonical endpoint locations", () => {
     const locations = createCliRouter(createAcceptanceTree())
       .endpointLocations.map((location) => ({
         entry: location.endpoint.entry.name,
         path: location.path,
+        parameters: location.binding.parameters.map(
+          (parameter) => parameter.parameterName,
+        ),
       }))
       .sort((left, right) =>
         left.path.join(" ").localeCompare(right.path.join(" ")),
       );
 
     expect(locations).toEqual([
-      { entry: "default", path: [] },
-      { entry: "collect", path: ["collect"] },
-      { entry: "hint", path: ["h"] },
-      { entry: "deep", path: ["h", "show"] },
-      { entry: "deep", path: ["one", "two", "three", "four"] },
+      { entry: "default", path: [], parameters: ["verbose"] },
+      { entry: "collect", path: ["collect"], parameters: ["head", "tail"] },
+      {
+        entry: "hint",
+        path: ["h"],
+        parameters: ["query", "tag", "verbose"],
+      },
+      { entry: "deep", path: ["h", "show"], parameters: [] },
+      {
+        entry: "deep",
+        path: ["one", "two", "three", "four"],
+        parameters: [],
+      },
     ]);
   });
 
@@ -256,16 +267,20 @@ describe("CLI entry tree router", () => {
     expect(isCliResolvedEndpoint(result, otherEndpoint)).toBe(false);
   });
 
-  it("resolves the root default, overrides, aliases, options, repeats and negation", () => {
+  it("resolves the root default, overrides, options, repeats and negation", () => {
     const router = createCliRouter(createAcceptanceTree());
     expect(router.resolve([])).toMatchObject({
       kind: CLI_ROUTER_RESULT_KIND.resolved,
       projection: { command: "default", verbose: false },
     });
+    expect(router.resolve(["hi"])).toMatchObject({
+      kind: CLI_ROUTER_RESULT_KIND.unknownCommand,
+      token: "hi",
+    });
 
     expect(
       router.resolve([
-        "hi",
+        "h",
         "-q",
         "symbol",
         "--tag",
@@ -577,7 +592,6 @@ describe("CLI entry tree router", () => {
         expect.objectContaining({
           name: "hint",
           token: "h",
-          aliases: ["hi"],
         }),
       ]),
     });

@@ -77,6 +77,7 @@ export type CliOptionAction =
 
 export type CompiledCliEndpoint = {
   readonly endpoint: EntryTreeEndpoint;
+  readonly binding: CliEntryBinding;
   readonly help: CliEntryBinding["help"];
   readonly options: readonly CompiledCliOption[];
   readonly positionals: readonly CompiledCliPositional[];
@@ -131,6 +132,7 @@ export function compileCliBinding(
   }
   return {
     endpoint,
+    binding,
     help: binding.help,
     options,
     positionals,

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  CLI_COMMAND_EXIT_CODE,
   CLI_GLOBAL_OPTION_ISSUE_KIND,
   CLI_GLOBAL_OPTION_RESULT_KIND,
   CLI_OUTPUT_FORMAT,
   CLI_RESULT_CODE,
   CLI_RESULT_STATUS,
+  createCliCommandExecutionResult,
   createCliResultEnvelope,
   createCliResultProjection,
   extractCliGlobalValueOption,
@@ -120,6 +122,31 @@ describe("CLI result envelope", () => {
       status: "completed",
       data: { ready: true },
     });
+  });
+
+  it("owns the typed command result and exit-code invariant", () => {
+    expect(
+      createCliCommandExecutionResult({
+        exitCode: CLI_COMMAND_EXIT_CODE.syntax,
+        status: CLI_RESULT_STATUS.rejected,
+        code: "invalid_argument",
+        data: { option: "--bad" },
+        text: "Invalid argument\n",
+      }),
+    ).toMatchObject({
+      exitCode: 2,
+      result: { status: CLI_RESULT_STATUS.rejected },
+    });
+
+    expect(() =>
+      createCliCommandExecutionResult({
+        exitCode: CLI_COMMAND_EXIT_CODE.success,
+        status: CLI_RESULT_STATUS.partial,
+        code: "partially_applied",
+        data: null,
+        text: "Partially applied\n",
+      }),
+    ).toThrow("partial results require exit 1");
   });
 
   it("rejects an invalid data version", () => {
