@@ -55,6 +55,8 @@ const CLI_HELP_LAYOUT = {
   sectionSeparator: "\n\n",
 } as const;
 
+const TRAILING_NEWLINES_PATTERN = /\n+$/u;
+
 type CliHelpSection = readonly string[];
 type OptionalCliHelpSection = CliHelpSection | null;
 type CliHelpRequirementDetails = readonly [string, ...string[]];
@@ -90,11 +92,17 @@ export function findCliHelpSurfaceLocation(
   return { surface: current, path };
 }
 
+/**
+ * Rendered help always ends with exactly one newline. Help is written to a
+ * terminal, so the terminating newline belongs to the renderer: leaving it out
+ * makes every caller append the same one, and each one of them a place to
+ * forget it or to append two.
+ */
 export function renderCliHelp(
   surface: CliHelpSurface,
   context: CliHelpRenderContext,
 ): string {
-  return joinCliHelpSections([
+  const body = joinCliHelpSections([
     createCliHelpSummarySection(surface, context.programName),
     createCliHelpCommandsSection(surface),
     createCliHelpArgumentsSection(surface),
@@ -104,6 +112,7 @@ export function renderCliHelp(
     createCliHelpDocumentationSection(surface),
     createCliHelpNextStepsSection(surface, context.programName),
   ]);
+  return `${body.replace(TRAILING_NEWLINES_PATTERN, "")}${CLI_HELP_LAYOUT.lineSeparator}`;
 }
 
 export function listCliHelpSurfaces(
