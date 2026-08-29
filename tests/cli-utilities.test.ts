@@ -176,6 +176,10 @@ describe("CLI utility APIs", () => {
     });
     expect(help).toContain("--verbose, --no-verbose");
     expect(help).toContain("comma-separated or repeatable");
+    // Terminating the output is the renderer's job: every caller writes this
+    // to a terminal, and none of them should have to append the newline.
+    expect(help.endsWith("\n")).toBe(true);
+    expect(help.endsWith("\n\n")).toBe(false);
   });
 
   it("formats router failures", () => {
