@@ -1,5 +1,6 @@
 import { describe, expectTypeOf, it } from "vitest";
 import { z } from "zod";
+import { bindHttpEntry, HTTP_METHOD } from "../src/http.js";
 import {
   bindCliEntry,
   CLI_OPTION_KIND,
@@ -62,11 +63,15 @@ describe("entry tree builder types", () => {
         { kind: "option", parameterName: "query", flags: ["--query"] },
       ],
     });
-    const explicitMcp = ["query"] as const satisfies McpBinding<
+    const explicitMcp = { exclude: [] } as const satisfies McpBinding<
       typeof entry.parameters
     >;
-    const mcp = bindMcpEntry(...explicitMcp);
-    const endpoint = defineEntryEndpoint(entry, cli, mcp);
+    const mcp = bindMcpEntry(explicitMcp);
+    const http = bindHttpEntry({
+      method: HTTP_METHOD.get,
+      exclude: ["query"],
+    });
+    const endpoint = defineEntryEndpoint(entry, cli, mcp, http);
     const tree = defineEntryTree(
       defineEntryNode({
         name: "tool",
@@ -78,7 +83,9 @@ describe("entry tree builder types", () => {
 
     expectTypeOf(cli.binding).toEqualTypeOf<unknown>();
     expectTypeOf(cli).toMatchTypeOf<EntryChannelBinding<"cli", "query">>();
-    expectTypeOf(explicitMcp[0]).toEqualTypeOf<"query">();
+    expectTypeOf(mcp).toMatchTypeOf<EntryChannelBinding<"mcp", never>>();
+    expectTypeOf(http).toMatchTypeOf<EntryChannelBinding<"http", "query">>();
+    expectTypeOf(explicitMcp.exclude).toEqualTypeOf<readonly []>();
     expectTypeOf(endpoint).toMatchTypeOf<EntryTreeEndpoint>();
     expectTypeOf(endpoint).toEqualTypeOf<EntryTreeEndpoint<typeof entry>>();
     expectTypeOf(endpoint.entry).toEqualTypeOf<typeof entry>();
@@ -116,11 +123,14 @@ describe("entry tree builder types", () => {
         { kind: "option", parameterName: "missing", flags: ["--missing"] },
       ],
     });
-    const invalidMcp = bindMcpEntry("missing");
+    const invalidMcp = bindMcpEntry({ exclude: ["missing"] });
+    const invalidHttp = bindHttpEntry({ exclude: ["missing"] });
     // @ts-expect-error the entry, not its bindings, fixes the parameter names
     defineEntryEndpoint(entry, invalidCli);
     // @ts-expect-error MCP bindings use the same NoInfer constraint
     defineEntryEndpoint(entry, invalidMcp);
+    // @ts-expect-error HTTP bindings use the same NoInfer constraint
+    defineEntryEndpoint(entry, invalidHttp);
   });
 
   it("materializes required and defaulted values in projection types", () => {

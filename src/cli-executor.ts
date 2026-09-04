@@ -4,6 +4,7 @@ import type {
   CliRouter,
   CliRouterResult,
 } from "./cli-model.js";
+import { createEndpointHandlers } from "./endpoint-handlers.js";
 import type { EntryTreeEndpoint } from "./model.js";
 
 type ResolvedCliResult = Extract<
@@ -58,27 +59,10 @@ export type CliExecutor<
 export function createCliExecutor<
   const Bindings extends readonly CliEndpointHandlerRegistration[],
 >(router: CliRouter, bindings: Bindings): CliExecutor<Bindings> {
-  const issues: string[] = [];
-  const routerEndpoints = new Set(router.endpoints);
-  const handlers = new Map<EntryTreeEndpoint, Bindings[number]>();
-  for (const binding of bindings) {
-    if (!routerEndpoints.has(binding.endpoint)) {
-      issues.push(
-        `handler endpoint ${binding.endpoint.entry.name} is not in the router`,
-      );
-    }
-    if (handlers.has(binding.endpoint)) {
-      issues.push(
-        `duplicate handler for endpoint ${binding.endpoint.entry.name}`,
-      );
-    }
-    handlers.set(binding.endpoint, binding);
-  }
-  for (const endpoint of router.endpoints) {
-    if (!handlers.has(endpoint)) {
-      issues.push(`missing handler for endpoint ${endpoint.entry.name}`);
-    }
-  }
+  const { issues, handlers } = createEndpointHandlers(
+    router.endpoints,
+    bindings,
+  );
   if (issues.length > 0) {
     throw new CliExecutorDefinitionError(issues);
   }

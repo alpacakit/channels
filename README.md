@@ -1,10 +1,8 @@
 # @alpacakit/channels
 
-Define an entry once, bind it to CLI and MCP, and use the same typed endpoint
-for argument parsing, help, MCP schemas, input decoding, and projection.
-
-HTTP routing is not currently provided. The supported entry-tree channels are
-CLI and MCP.
+Define an entry once, bind it to CLI, MCP, and HTTP, and use the same typed
+endpoint for argument parsing, help, MCP schemas, HTTP routing, input decoding,
+and projection.
 
 ## The mental model
 
@@ -14,7 +12,7 @@ You only need four concepts:
 Entry    = what the command accepts and what it projects
 Binding  = how one channel supplies that input
 Endpoint = the Entry and its Bindings bundled together
-Tree     = where the Endpoint lives in the command hierarchy
+Tree     = where the Endpoint lives in the surface hierarchy
 ```
 
 A useful shorthand is:
@@ -39,6 +37,12 @@ The same operation is exposed to MCP with this JSON input:
   "query": "entry tree",
   "limit": 5
 }
+```
+
+And to HTTP as:
+
+```http
+GET /hint?query=entry%20tree&limit=5
 ```
 
 The definitions have this structure:
@@ -68,6 +72,12 @@ The definitions have this structure:
 │ │ MCP Binding                        │ │
 │ │ query -> JSON property "query"     │ │
 │ │ limit -> JSON property "limit"     │ │
+│ └────────────────────────────────────┘ │
+│                                        │
+│ ┌────────────────────────────────────┐ │
+│ │ HTTP Binding                       │ │
+│ │ method -> GET                      │ │
+│ │ expose query and limit             │ │
 │ └────────────────────────────────────┘ │
 └───────────────────┬────────────────────┘
                     │
@@ -159,7 +169,8 @@ Projection:
   }
 ```
 
-There is no CLI or MCP logic here. The Entry describes the operation itself.
+There is no CLI, MCP, or HTTP logic here. The Entry describes the operation
+itself.
 
 Because `limit` has a default, `values.limit` is typed as `number`, not
 `number | undefined`. Only optional parameters without a default remain
@@ -201,12 +212,13 @@ my-app hint "entry tree" --limit 5
 Do not repeat `query`'s string codec or `limit`'s default in the Binding. Those
 facts already belong to the Entry.
 
-An MCP Binding selects the Entry parameters exposed as tool input:
+An MCP Binding exposes every Entry parameter as tool input unless it is listed
+in `exclude`:
 
 ```ts
 import { bindMcpEntry } from "@alpacakit/channels/mcp";
 
-const HintMcpBinding = bindMcpEntry("query", "limit");
+const HintMcpBinding = bindMcpEntry();
 ```
 
 The mapping is:
@@ -221,6 +233,25 @@ The mapping is:
    query        limit
 ```
 
+An HTTP Binding selects the safe default method (`POST`), or overrides it, and
+can hide parameters in the same way:
+
+```ts
+import { bindHttpEntry, HTTP_METHOD } from "@alpacakit/channels/http";
+
+const HintHttpBinding = bindHttpEntry({ method: HTTP_METHOD.get });
+```
+
+The Tree supplies the route and the Binding supplies the method:
+
+```text
+GET /hint?query=entry%20tree&limit=5
+    └─┬─┘ └──────────────┬──────────┘
+      │                  │
+      ▼                  ▼
+ Tree path        Entry parameters
+```
+
 ## 3. Bundle the Entry and Bindings: Endpoint
 
 An Endpoint is the public execution identity for the operation:
@@ -232,6 +263,7 @@ const HintEndpoint = defineEntryEndpoint(
   HintEntry,
   HintCliBinding,
   HintMcpBinding,
+  HintHttpBinding,
 );
 ```
 
@@ -247,14 +279,18 @@ HintEndpoint
 │   ├── query is positional
 │   └── limit is --limit / -n
 │
-└── MCP input mapping
-    ├── expose query
-    └── expose limit
+├── MCP input mapping
+│   ├── expose query
+│   └── expose limit
+│
+└── HTTP input mapping
+    ├── use GET
+    └── expose query and limit
 ```
 
 Keep the object returned by `defineEntryEndpoint()`. CLI result narrowing and
-all MCP runtime APIs use endpoint identity. Do not reconstruct an equivalent
-Endpoint later.
+the MCP and HTTP runtime APIs use endpoint identity. Do not reconstruct an
+equivalent Endpoint later.
 
 ## 4. Give the Endpoint an address: Tree
 
@@ -476,29 +512,7 @@ HintEntry.project()
 }
 ```
 
-CLI and MCP have different inputs, but they converge on the same decoder,
-defaults, and projection:
-
-```text
-CLI argv ──> CLI Binding ──┐
-                           │
-                           ▼
-                     HintEndpoint
-                           │
-                           ▼
-                     Shared Decoder
-                           │
-                           ▼
-                   HintEntry.project()
-                           │
-                           ▼
-                    same projection
-                           ▲
-                           │
-MCP JSON ──> MCP Binding ──┘
-```
-
-If `limit` is omitted from either channel, both produce the Entry default:
+If `limit` is omitted, MCP produces the Entry default:
 
 ```ts
 {
@@ -506,6 +520,106 @@ If `limit` is omitted from either channel, both produce the Entry default:
   limit: 20,
 }
 ```
+
+## 7. Execute the same Endpoint from HTTP
+
+Compile the Tree once, then resolve Fetch `Request` objects through it:
+
+```ts
+import {
+  createHttpRouter,
+  isHttpResolvedEndpoint,
+} from "@alpacakit/channels/http";
+
+const httpRouter = createHttpRouter(CommandTree);
+const httpResult = await httpRouter.resolve(
+  new Request("http://localhost/hint?query=entry%20tree&limit=5"),
+);
+
+if (isHttpResolvedEndpoint(httpResult, HintEndpoint)) {
+  console.log(httpResult.projection);
+}
+```
+
+The router derives `/hint` from the Tree, GET from the HTTP Binding, and the
+input representation from each exposed Entry parameter:
+
+```text
+HTTP Request
+  │
+  │ GET /hint?query=entry%20tree&limit=5
+  ▼
+HTTP Router
+  │
+  │ find HintEndpoint from the Tree path and method
+  ▼
+HTTP Binding
+  │
+  │ query = "entry tree"
+  │ limit = "5"
+  ▼
+Shared Decoder
+  │
+  │ coerce strings by Entry shape, then validate
+  ▼
+HintEntry.project()
+  │
+  ▼
+{
+  query: "entry tree",
+  limit: 5
+}
+```
+
+For direct request handling, register exactly one handler for every router
+endpoint. A handler returns a JSON value or a Fetch `Response`:
+
+```ts
+import {
+  createHttpHandler,
+  handleHttpEndpoint,
+} from "@alpacakit/channels/http";
+
+const handle = createHttpHandler(httpRouter, [
+  handleHttpEndpoint(HintEndpoint, ({ projection, request }) => ({
+    query: projection.query,
+    limit: projection.limit,
+    requestId: request.headers.get("x-request-id"),
+  })),
+]);
+```
+
+Use the separate Node bridge when adapting `node:http` to Fetch objects:
+
+```ts
+import * as http from "node:http";
+import { createNodeRequestListener } from "@alpacakit/channels/http/node";
+
+const server = http.createServer(createNodeRequestListener(handle));
+```
+
+The bridge constructs a Fetch `Request` and writes the handler's Fetch
+`Response`; creating, listening on, and closing the server remain application
+policy.
+
+All three channels converge on the same decoder, defaults, and projection:
+
+```text
+CLI argv ──> CLI Binding ───┐
+                            │
+MCP JSON ──> MCP Binding ───┼──> HintEndpoint
+                            │          │
+HTTP ─────> HTTP Binding ───┘          ▼
+                                  Shared Decoder
+                                        │
+                                        ▼
+                                HintEntry.project()
+                                        │
+                                        ▼
+                                 same projection
+```
+
+If `limit` is omitted from any channel, each produces the Entry default.
 
 ## Where each decision belongs
 
@@ -517,12 +631,13 @@ When adding a command, ask these questions in order:
 | How are they validated and defaulted? | Entry codecs and requirements |
 | What application value should be produced? | Entry `project()` |
 | How does CLI supply each value? | CLI Binding |
-| Which values does MCP expose? | MCP Binding |
+| Which values does MCP expose or exclude? | MCP Binding |
+| Which HTTP method is used and which values are hidden? | HTTP Binding |
 | What object ties the operation and channels together? | Endpoint |
-| Under which command path does it live? | Tree |
+| Under which command or HTTP path does it live? | Tree and optional channel segment override |
 
-Do not put CLI flags, MCP property selection, or command-tree placement on the
-Entry. Do not repeat codecs, requiredness, or defaults in Bindings.
+Do not put CLI flags, MCP/HTTP exclusions, HTTP methods, or tree placement on
+the Entry. Do not repeat codecs, requiredness, or defaults in Bindings.
 
 ## Suggested application file layout
 
@@ -537,7 +652,7 @@ src/
 │
 ├── hint-endpoint.ts
 │   └── HintEndpoint
-│       CLI and MCP Bindings
+│       CLI, MCP, and HTTP Bindings
 │
 ├── command-tree.ts
 │   └── CommandTree
@@ -546,8 +661,11 @@ src/
 ├── cli.ts
 │   └── createCliRouter(CommandTree)
 │
-└── mcp.ts
-    └── createMcpEndpoint(HintEndpoint)
+├── mcp.ts
+│   └── createMcpEndpoint(HintEndpoint)
+│
+└── http.ts
+    └── createHttpRouter(CommandTree) and createHttpHandler(...)
 ```
 
 ## Package entries
@@ -559,6 +677,8 @@ The neutral model and channel adapters are intentionally separate imports:
 | `@alpacakit/channels` | Parameters, codecs, entries, output contracts, and entry-tree builders |
 | `@alpacakit/channels/cli` | CLI bindings/coercion, router, typed executor, help traversal, and text renderers |
 | `@alpacakit/channels/mcp` | MCP binding, the compiled endpoint handle, output schema projection, and the resolved-result guard |
+| `@alpacakit/channels/http` | HTTP binding, route derivation, Fetch router, typed handler registry, and resolved-result guard |
+| `@alpacakit/channels/http/node` | `node:http` bridge for an HTTP Fetch handler |
 
 `zod` is a peer dependency. In this workspace, depend on the package with
 `workspace:*` and use the workspace Zod version.
@@ -596,7 +716,7 @@ import { overrideCliSegment } from "@alpacakit/channels/cli";
 defineEntryNode({
   name: "hint",
   description: "Find implementation hints",
-  segments: [overrideCliSegment({ token: "h", aliases: ["hi"] })],
+  segments: [overrideCliSegment({ token: "h" })],
   endpoints: [HintEndpoint],
 });
 ```
@@ -629,17 +749,16 @@ CLI binding and routing rules:
 `createCliRouter()` compiles and validates the complete CLI surface. Invalid
 definitions throw `EntryTreeDefinitionError` at construction time.
 
-The router's `help` property contains the compiled hierarchy, aliases,
-render-ready option groups, positionals, requiredness, defaults, repeat modes,
-and generated negative flags. Authored option-section names are resolved during
+The router's `help` property contains the compiled hierarchy, render-ready
+option groups, positionals, requiredness, defaults, repeat modes, and generated
+negative flags. Authored option-section names are resolved during
 projection, so renderers consume `optionGroups` without performing a join.
 `findCliHelpSurface()`, `listCliHelpSurfaces()`, `renderCliHelp()`, and
 `formatCliRouterError()` provide standard lookup, traversal, one-surface text
 rendering, and diagnostics without writing output or choosing an exit code.
 `renderCliHelp()` implements `CliHelpRender`; its context carries the full
 selected `programName`, root `executableName`, path, and description preference.
-The renderer path uses canonical CLI segment tokens; a directly invoked alias
-may still be preserved in `programName` for user-facing usage text.
+The renderer path uses canonical CLI segment tokens.
 `--help`, complete-reference framing, and `--version` remain application policy.
 
 The router returns a discriminated union:
@@ -648,6 +767,7 @@ The router returns a discriminated union:
 - `unknown_command`
 - `incomplete_command`
 - `invalid_input`
+- `invalid_parameter`
 - `internal_error`
 
 `path` is preserved for diagnostics. Consumers may use the standard formatter
@@ -659,6 +779,16 @@ or supply their own wording. Process exit codes remain consumer policy.
 both schema generation and runtime parsing. Do not keep a second runtime copy of
 the MCP Binding.
 
+`bindMcpEntry()` exposes every Entry parameter. List only exceptions when a
+parameter must remain outside MCP:
+
+```ts
+const binding = bindMcpEntry({ exclude: ["internalOnly"] });
+```
+
+Excluding a nonexistent parameter, repeating an exclusion, or excluding a
+required parameter is an `EntryTreeDefinitionError` at compilation.
+
 ```ts
 declare const toolArguments: Record<string, unknown>;
 
@@ -667,15 +797,19 @@ const inputShape = mcpEndpoint.inputSchema;
 const result = mcpEndpoint.parse(toolArguments);
 ```
 
-`inputSchema` is a raw Zod object shape. It includes only MCP-bound parameters
-and projects their schemas, descriptions, and requiredness.
+`inputSchema` is a raw Zod object shape. It includes every non-excluded
+parameter in Entry order and projects its schema, description, and
+requiredness.
 
-`parse()` applies Entry defaults to all parameters, validates bound input, and
-runs the Entry projection. It returns:
+`parse()` reads exposed keys, ignores other keys, applies Entry defaults to
+omitted optional parameters (including excluded ones), validates input, and
+runs the Entry projection. MCP SDK schema validation remains responsible for
+rejecting keys absent from `inputSchema`. The parse result is:
 
 - `resolved` with the typed projection
-- `invalid_input` for missing input, codec failures, or an `EntryInputError`
-  deliberately thrown by `project()`
+- `invalid_input` for an entry-targeted `EntryInputError` from `project()`
+- `invalid_parameter` for a missing or invalid parameter, or a
+  parameter-targeted `EntryInputError`
 - `internal_error` with the original error for an unexpected `project()` throw
 
 `isMcpResolved(result)` narrows a parse result to its `resolved` variant, the
@@ -688,10 +822,46 @@ than on the first invocation.
 MCP tool naming and registration stay with the consumer. Hierarchical MCP tool
 names are not currently derived from the Tree.
 
+## HTTP reference
+
+`createHttpRouter(tree, options)` eagerly derives and validates the complete
+HTTP surface. Its `routes` array exposes each compiled method, path, path
+segments, endpoint identity, and exposed parameter descriptions.
+
+| Rule | Behavior |
+| --- | --- |
+| Route | The root name identifies the surface and is omitted. Each non-root Tree node contributes one literal segment; a root endpoint uses `/`. Matching is exact, including trailing slashes. |
+| Segment override | `overrideHttpSegment({ segment })` changes only the HTTP segment. Segments accept RFC 3986 unreserved characters: letters, digits, `.`, `_`, `~`, and `-`. |
+| Method | `bindHttpEntry()` defaults to `POST`. A read accidentally exposed as POST only loses cacheability; a write accidentally exposed as GET would violate HTTP semantics. Use `HTTP_METHOD.get` explicitly for reads. |
+| GET input | Values come only from the query string; the body is ignored. Repeated keys supply array elements. Scalar repetition is invalid. Strings are coerced by Entry shape: `"true"`/`"false"` to booleans, integer strings to numbers, and scalar array values to arrays. |
+| POST input | The body must have the `application/json` media type; media-type parameters and case are ignored. An empty body is `{}`. A nonempty body must be valid JSON whose root is an object. No string coercion is applied. |
+| Exposure | Every Entry parameter is exposed unless named by `exclude`. Excluded optional parameters may still receive Entry defaults. Excluding a required parameter is a definition error. |
+| Unknown keys | Query or JSON object keys outside the exposed parameters produce `invalid_input`; excluded keys are unknown to HTTP clients. |
+| Body limit | `maxBodyBytes` defaults to 1,048,576 bytes. POST reading stops once the limit is exceeded. |
+| Handler return | `handleHttpEndpoint()` handlers return a JSON value or a Fetch `Response`. A `Response` is passed through unchanged. |
+| Output contract | A JSON value is checked against the Entry output contract when one exists. A violation is an internal server error, is passed to `onError`, and is never exposed in the response body. |
+
+Router results and the standard `createHttpHandler()` mapping are:
+
+| Router result | HTTP status |
+| --- | --- |
+| `resolved` | 200 after the registered handler returns JSON; a returned `Response` keeps its own status |
+| `not_found` | 404 |
+| `method_not_allowed` | 405 with `allow` |
+| `invalid_input` | 400 |
+| `invalid_parameter` | 400 |
+| `internal_error` | 500 and optional `onError` notification |
+
+HTTP deliberately does not provide path parameters, methods other than GET and
+POST, header or cookie parameter bindings, CORS or authentication policy,
+OpenAPI generation, or ownership of a listening server. The optional Node
+bridge adapts one request at a time but does not call `listen()`. Consumers can
+generate documentation from `router.routes` without a second route model.
+
 ## Output contracts
 
 An output contract is optional. Add one when the same successful result schema
-must drive runtime verification and MCP structured output:
+must drive HTTP response verification and MCP structured output:
 
 ```ts
 import {
@@ -743,10 +913,11 @@ passed to `verifyEntryOutput()` throws `EntryOutputContractError`.
 - `EntryTreeDefinitionError` means the Tree or a channel Binding is invalid.
   Treat it as a startup or programmer error.
 - `EntryInputError` may be thrown inside `project()` for an expected semantic
-  input rejection. It becomes `invalid_input`. Pass
-  `{ parameterName: "name" }` to associate all issues with one Entry parameter;
-  an unknown parameter name is an `internal_error` programmer failure.
-- Codec and required-input failures become `invalid_input`.
+  input rejection. An entry target becomes `invalid_input`; pass
+  `{ kind: ENTRY_INPUT_TARGET_KIND.parameter, parameterName: "name" }` to
+  produce `invalid_parameter`. An unknown parameter name is an `internal_error`
+  programmer failure.
+- Codec and required-input failures become `invalid_parameter`.
 - Any other projection exception becomes `internal_error` and retains the
   original error. It is never reported as caller input failure.
 - `EntryOutputContractError` means a handler returned a value outside its
@@ -754,13 +925,15 @@ passed to `verifyEntryOutput()` throws `EntryOutputContractError`.
 
 ## Scope
 
-The package currently provides the neutral entry tree, CLI router, optional CLI
-executor and text renderers, and MCP endpoint adapter. It does not provide an
-HTTP router, process exit policy, automatic `--help`/`--version` handling, MCP
-tool registration, authentication, or a network listener.
+The package provides the neutral entry tree, CLI router, optional CLI executor
+and text renderers, MCP endpoint adapter, HTTP router and handler, and a
+`node:http` bridge. It does not own process exit policy, automatic
+`--help`/`--version` handling, MCP tool registration, authentication, or a
+listening server lifecycle.
 
-Every command surface uses `defineEntryEndpoint()` with `bindCliEntry()` and
-`bindMcpEntry()`. There is no separate legacy option-descriptor API.
+Every surface uses `defineEntryEndpoint()` with the applicable
+`bindCliEntry()`, `bindMcpEntry()`, and `bindHttpEntry()` values. There is no
+separate legacy option-descriptor API.
 
 ## Zod peer and source linking
 

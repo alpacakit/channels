@@ -68,11 +68,9 @@ const TestEntry = defineEntry({
   project: ({ values }) => values,
 });
 
-const TestMcpBinding = ["symbol", "intent", "depth"] as const;
-
 const TestEndpoint = defineEntryEndpoint(
   TestEntry,
-  bindMcpEntry(...TestMcpBinding),
+  bindMcpEntry({ exclude: ["exported", "verbose", "internalOnly"] }),
 );
 
 const TestOutputSchema = z
@@ -186,7 +184,7 @@ describe("@alpacakit/channels MCP binding", () => {
       ],
       project: ({ values }) => values,
     });
-    const endpoint = defineEntryEndpoint(entry, bindMcpEntry("count"));
+    const endpoint = defineEntryEndpoint(entry, bindMcpEntry());
 
     expect(createMcpEndpoint(endpoint).parse({})).toMatchObject({
       kind: ENTRY_DECODE_RESULT_KIND.invalidParameter,

@@ -1,5 +1,6 @@
 export const CHANNEL = {
   cli: "cli",
+  http: "http",
   mcp: "mcp",
 } as const;
 

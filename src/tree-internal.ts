@@ -4,6 +4,8 @@ import type { Channel } from "./values.js";
 export const PAYLOAD_KIND = {
   cliBinding: "cli_binding",
   cliSegment: "cli_segment",
+  httpBinding: "http_binding",
+  httpSegment: "http_segment",
   mcpBinding: "mcp_binding",
 } as const;
 

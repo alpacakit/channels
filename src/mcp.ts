@@ -33,14 +33,18 @@ const ZOD_SCHEMA_TYPE = {
   readonly: "readonly",
 } as const;
 
-export type McpBinding<Parameters extends ParameterSet = ParameterSet> =
-  readonly Parameters[number]["name"][];
+export type McpBinding<Parameters extends ParameterSet = ParameterSet> = {
+  readonly exclude: readonly Parameters[number]["name"][];
+};
 
-export function bindMcpEntry<const ParameterNames extends readonly string[]>(
-  ...parameterNames: ParameterNames
-): EntryChannelBinding<typeof CHANNEL.mcp, ParameterNames[number]> {
-  registerChannelPayload(PAYLOAD_KIND.mcpBinding, parameterNames);
-  return createEntryChannelBinding(CHANNEL.mcp, parameterNames);
+export function bindMcpEntry<
+  const Excluded extends readonly string[] = readonly [],
+>(input?: {
+  readonly exclude?: Excluded;
+}): EntryChannelBinding<typeof CHANNEL.mcp, Excluded[number]> {
+  const payload = { exclude: input?.exclude ?? [] } satisfies McpBinding;
+  registerChannelPayload(PAYLOAD_KIND.mcpBinding, payload);
+  return createEntryChannelBinding(CHANNEL.mcp, payload);
 }
 
 export type McpEntryParseResult<Entry extends EntryTreeEndpoint["entry"]> =
@@ -120,18 +124,47 @@ function resolveMcpBindings(
       `${endpoint.entry.name}: endpoint must have exactly one valid MCP binding`,
     ]);
   }
+  const binding = channelBinding.binding;
   const compilation = compileParameterBindings(
     endpoint.entry,
-    channelBinding.binding.map((parameterName) => ({ parameterName })),
+    endpoint.entry.parameters
+      .filter((parameter) => !binding.exclude.includes(parameter.name))
+      .map((parameter) => ({ parameterName: parameter.name })),
   );
-  if (compilation.issues.length > 0) {
-    throw new EntryTreeDefinitionError(
-      compilation.issues.map((issue) =>
-        formatMcpParameterBindingIssue(endpoint.entry.name, issue),
-      ),
-    );
+  const issues = validateMcpExclusions(endpoint, binding.exclude);
+  issues.push(
+    ...compilation.issues.map((issue) =>
+      formatMcpParameterBindingIssue(endpoint.entry.name, issue),
+    ),
+  );
+  if (issues.length > 0) {
+    throw new EntryTreeDefinitionError(issues);
   }
   return compilation.bindings;
+}
+
+function validateMcpExclusions(
+  endpoint: EntryTreeEndpoint,
+  exclusions: readonly string[],
+): string[] {
+  const issues: string[] = [];
+  const names = new Set<string>();
+  for (const name of exclusions) {
+    if (names.has(name)) {
+      issues.push(
+        `${endpoint.entry.name}: duplicate MCP exclusion for parameter ${name}`,
+      );
+    }
+    names.add(name);
+    if (
+      !endpoint.entry.parameters.some((parameter) => parameter.name === name)
+    ) {
+      issues.push(
+        `${endpoint.entry.name}: MCP binding excludes nonexistent parameter ${name}`,
+      );
+    }
+  }
+  return issues;
 }
 
 function formatMcpParameterBindingIssue(
@@ -140,9 +173,9 @@ function formatMcpParameterBindingIssue(
 ): string {
   switch (issue.kind) {
     case PARAMETER_BINDING_ISSUE_KIND.duplicate:
-      return `${entryName}: duplicate MCP binding for parameter ${issue.parameterName}`;
+      return `${entryName}: duplicate exposed MCP parameter ${issue.parameterName}`;
     case PARAMETER_BINDING_ISSUE_KIND.nonexistent:
-      return `${entryName}: MCP binding names nonexistent parameter ${issue.parameterName}`;
+      return `${entryName}: MCP exposes nonexistent parameter ${issue.parameterName}`;
     case PARAMETER_BINDING_ISSUE_KIND.requiredUnreachable:
       return `${entryName}: required parameter ${issue.parameterName} is unreachable from MCP`;
   }

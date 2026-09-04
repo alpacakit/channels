@@ -1,7 +1,7 @@
 import type { JsonValue } from "@alpacakit/core";
 import { CLI_VALUE_COERCION, type CliValueCoercion } from "./cli-model.js";
 import type { ValueShape } from "./model.js";
-import { VALUE_SHAPE_KIND } from "./values.js";
+import { coerceStringValue } from "./string-coercion.js";
 
 export function coerceCliArgvValue(
   shape: ValueShape,
@@ -11,35 +11,7 @@ export function coerceCliArgvValue(
   if (coercion !== null) {
     return coerceExplicitCliValue(rawValue, coercion);
   }
-  if (shape.kind === VALUE_SHAPE_KIND.array) {
-    const values = Array.isArray(rawValue) ? rawValue : [rawValue];
-    return values.map((value) =>
-      coerceCliArgvScalarValue(shape.element, value),
-    );
-  }
-  return coerceCliArgvScalarValue(shape, rawValue);
-}
-
-function coerceCliArgvScalarValue(
-  shape: ValueShape,
-  value: unknown,
-): JsonValue {
-  if (shape.kind === VALUE_SHAPE_KIND.boolean) {
-    if (value === "true") {
-      return true;
-    }
-    if (value === "false") {
-      return false;
-    }
-  }
-  if (
-    shape.kind === VALUE_SHAPE_KIND.positiveInteger &&
-    typeof value === "string" &&
-    /^[+-]?\d+$/.test(value)
-  ) {
-    return Number(value);
-  }
-  return value as JsonValue;
+  return coerceStringValue(shape, rawValue);
 }
 
 function coerceExplicitCliValue(
