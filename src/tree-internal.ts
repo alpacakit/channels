@@ -1,4 +1,5 @@
 import type { ChannelSegmentOverride, EntryChannelBinding } from "./model.js";
+import { ownedRecord } from "./owned.js";
 import type { Channel } from "./values.js";
 
 export const PAYLOAD_KIND = {
@@ -28,22 +29,28 @@ export function isChannelPayload(kind: PayloadKind, value: unknown): boolean {
   );
 }
 
-export function createChannelSegmentOverride(
-  channel: Channel,
-  segment: unknown,
-): ChannelSegmentOverride {
-  return { channel, segment } as ChannelSegmentOverride;
+export function createChannelSegmentOverride<
+  const ChannelName extends Channel,
+  Segment,
+>(
+  channel: ChannelName,
+  segment: Segment,
+): ChannelSegmentOverride<ChannelName, Segment> {
+  return ownedRecord({ channel, segment }) as ChannelSegmentOverride<
+    ChannelName,
+    Segment
+  >;
 }
 
 export function createEntryChannelBinding<
   const ChannelName extends Channel,
-  const ParameterName extends string,
+  Binding,
 >(
   channel: ChannelName,
-  binding: unknown,
-): EntryChannelBinding<ChannelName, ParameterName> {
-  return { channel, binding } as EntryChannelBinding<
+  binding: Binding,
+): EntryChannelBinding<ChannelName, Binding> {
+  return ownedRecord({ channel, binding }) as EntryChannelBinding<
     ChannelName,
-    ParameterName
+    Binding
   >;
 }

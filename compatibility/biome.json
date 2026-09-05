@@ -1,0 +1,52 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.7/schema.json",
+  "root": false,
+  "files": {
+    "ignoreUnknown": true,
+    "includes": ["**", "../examples/**"]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space"
+  },
+  "linter": {
+    "enabled": true,
+    "domains": {
+      "test": "recommended",
+      "types": "recommended"
+    },
+    "rules": {
+      "recommended": true,
+      "complexity": {
+        "noBannedTypes": "error",
+        "noExcessiveCognitiveComplexity": {
+          "level": "error",
+          "options": { "maxAllowedComplexity": 30 }
+        },
+        "noExcessiveLinesPerFunction": {
+          "level": "error",
+          "options": { "maxLines": 120, "skipBlankLines": true }
+        }
+      },
+      "nursery": {
+        "noExcessiveLinesPerFile": {
+          "level": "error",
+          "options": { "maxLines": 800, "skipBlankLines": true }
+        }
+      },
+      "style": {
+        "useNamingConvention": {
+          "level": "error",
+          "options": { "strictCase": false }
+        }
+      },
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noFocusedTests": "error",
+        "noImplicitAnyLet": "error",
+        "noSkippedTests": "error",
+        "noTsIgnore": "error"
+      }
+    }
+  }
+}

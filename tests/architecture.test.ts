@@ -1,14 +1,6 @@
-// Package-boundary guard (restored from the monorepo extraction). Each library
-// under packages/* is published and installed on its own, so its source must
-// never reach a sibling package through a relative path that escapes the
-// package directory — cross-package access has to go through the sibling's
-// published name (e.g. "@alpacakit/core"). A relative import that resolves
-// outside this package would build in the workspace yet break once published.
-//
-// The public-surface guard keeps the CLI, MCP, and HTTP bindings behind their
-// own subpath exports ("./cli", "./mcp", "./http"). The always-loaded root barrel must not
-// re-export them, so a consumer that only wants the neutral channel model never
-// pulls channel-specific compilers into its module graph.
+// Each packages/* library is published independently. Relative imports must
+// stay inside this package, and channel-specific modules must remain behind
+// their subpath exports rather than entering the neutral root barrel.
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -45,13 +37,12 @@ describe("package boundary", () => {
 });
 
 describe("channels public surface", () => {
-  it("keeps the CLI, MCP, and HTTP bindings out of the root barrel", async () => {
+  it("keeps channel bindings out of the neutral root barrel", async () => {
     const barrel = await readFile(ROOT_BARREL, "utf8");
     const specifiers = [...barrel.matchAll(IMPORT_SPECIFIER_PATTERN)]
       .map((match) => match[1] ?? match[2])
       .filter((specifier): specifier is string => specifier !== undefined);
 
-    // Anti-vacuity: the barrel must actually re-export the neutral surface.
     expect(specifiers.length).toBeGreaterThan(0);
     expect(
       specifiers.filter((specifier) => CHANNEL_MODULE_PATTERN.test(specifier)),

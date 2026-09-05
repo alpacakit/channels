@@ -10,8 +10,11 @@ import type { ParameterRequirementDescription } from "./introspection.js";
 import type {
   ChannelSegmentOverride,
   EntryChannelBinding,
-  EntryTreeEndpoint,
+  RawValueMap,
+  ValueShape,
 } from "./model.js";
+import { ownedArray, ownedRecord } from "./owned.js";
+import type { InputPlan, Registration } from "./registration.js";
 import {
   createChannelSegmentOverride,
   createEntryChannelBinding,
@@ -28,15 +31,6 @@ export const CLI_ARG_KIND = {
 export const CLI_VALUE_COERCION = {
   json: "json",
   jsonOrString: "json_or_string",
-} as const;
-
-export const CLI_ROUTER_RESULT_KIND = {
-  resolved: "resolved",
-  unknownCommand: "unknown_command",
-  incompleteCommand: "incomplete_command",
-  invalidInput: "invalid_input",
-  invalidParameter: "invalid_parameter",
-  internalError: "internal_error",
 } as const;
 
 export type CliBooleanMode =
@@ -183,11 +177,14 @@ export function bindCliEntry<
 >(binding: {
   readonly parameters: Bindings;
   readonly help?: CliCommandHelpInput<CliOptionParameterName<Bindings>>;
-}): EntryChannelBinding<typeof CHANNEL.cli, Bindings[number]["parameterName"]> {
-  const payload = {
-    parameters: binding.parameters.map(normalizeCliArgBinding),
+}): EntryChannelBinding<
+  typeof CHANNEL.cli,
+  CliEntryBinding<Bindings[number]["parameterName"]>
+> {
+  const payload = ownedRecord({
+    parameters: ownedArray(binding.parameters.map(normalizeCliArgBinding)),
     help: normalizeCliCommandHelp(binding.help),
-  } satisfies CliEntryBinding;
+  } satisfies CliEntryBinding);
   registerChannelPayload(PAYLOAD_KIND.cliBinding, payload);
   return createEntryChannelBinding(CHANNEL.cli, payload);
 }
@@ -195,11 +192,11 @@ export function bindCliEntry<
 export function overrideCliSegment(segment: {
   readonly token: string;
   readonly help?: CliGroupHelpInput;
-}): ChannelSegmentOverride {
-  const payload = {
+}): ChannelSegmentOverride<typeof CHANNEL.cli, CliSegment> {
+  const payload = ownedRecord({
     token: segment.token,
     help: normalizeCliGroupHelp(segment.help),
-  } satisfies CliSegment;
+  } satisfies CliSegment);
   registerChannelPayload(PAYLOAD_KIND.cliSegment, payload);
   return createChannelSegmentOverride(CHANNEL.cli, payload);
 }
@@ -208,62 +205,75 @@ function normalizeCliArgBinding<Name extends string>(
   input: CliArgBindingInput<Name>,
 ): CliArgBinding<Name> {
   if (input.kind === CLI_ARG_KIND.option) {
-    return {
+    return ownedRecord({
       kind: input.kind,
       parameterName: input.parameterName,
-      flags: input.flags ?? [defaultCliOptionFlag(input.parameterName)],
+      flags: ownedArray(
+        input.flags ?? [defaultCliOptionFlag(input.parameterName)],
+      ),
       valueName: input.valueName ?? defaultCliValueName(input.parameterName),
       valueNameAuthored: input.valueName !== undefined,
       coercion: input.coercion ?? null,
       booleanMode: input.booleanMode ?? null,
       negated: input.negated ?? false,
       repeatable: input.repeatMode === CLI_OPTION_VALUE_MODE.commaOrRepeat,
-    };
+    });
   }
-  return {
+  return ownedRecord({
     kind: input.kind,
     parameterName: input.parameterName,
     valueName: input.valueName ?? defaultCliValueName(input.parameterName),
     coercion: input.coercion ?? null,
     variadic: input.variadic ?? false,
-  };
+  });
 }
 
 function normalizeCliCommandHelp(
   input: CliCommandHelpInput | undefined,
 ): CliCommandHelp {
-  return {
+  return ownedRecord({
     usage:
       input?.usages === undefined
-        ? { kind: CLI_HELP_USAGE_KIND.derived }
-        : { kind: CLI_HELP_USAGE_KIND.authored, values: input.usages },
+        ? ownedRecord({ kind: CLI_HELP_USAGE_KIND.derived })
+        : ownedRecord({
+            kind: CLI_HELP_USAGE_KIND.authored,
+            values: ownedArray(input.usages),
+          }),
     examples: normalizeCliHelpExamples(input?.examples),
-    optionSections: (input?.optionSections ?? []).map((section) => ({
-      heading: section.heading,
-      description: section.description ?? null,
-      parameterNames: section.parameterNames,
-    })),
-  };
+    optionSections: ownedArray(
+      (input?.optionSections ?? []).map((section) =>
+        ownedRecord({
+          heading: section.heading,
+          description: section.description ?? null,
+          parameterNames: ownedArray(section.parameterNames),
+        }),
+      ),
+    ),
+  });
 }
 
 function normalizeCliGroupHelp(
   input: CliGroupHelpInput | undefined,
 ): CliGroupHelp {
-  return {
+  return ownedRecord({
     subcommandHint: input?.subcommandHint ?? null,
     examples: normalizeCliHelpExamples(input?.examples),
-  };
+  });
 }
 
 function normalizeCliHelpExamples(
   examples: readonly CliHelpExampleInput[] | undefined,
 ): readonly CliHelpExample[] {
-  return (examples ?? []).map((example) => ({
-    title: example.title,
-    useWhen: example.useWhen,
-    command: example.command,
-    expectedResult: example.expectedResult ?? [],
-  }));
+  return ownedArray(
+    (examples ?? []).map((example) =>
+      ownedRecord({
+        title: example.title,
+        useWhen: example.useWhen,
+        command: example.command,
+        expectedResult: ownedArray(example.expectedResult ?? []),
+      }),
+    ),
+  );
 }
 
 type CliHelpOptionBase = {
@@ -320,91 +330,78 @@ export type CliHelpSurface = {
   readonly subcommandHint: string | null;
 };
 
-export type CliHelpRenderContext = {
-  /** Full selected command name, including the executable and command path. */
-  readonly programName: string;
-  /** Root executable name used to prefix authored invocation examples. */
-  readonly executableName: string;
-  /** Canonical CLI segment-token path for the supplied surface. */
-  readonly path: CliCommandPath;
-  readonly withDescription: boolean;
+type CliParameterBase = {
+  readonly parameterName: string;
+  readonly description: string;
+  readonly requirement: ParameterRequirementDescription;
+  readonly shape: ValueShape;
+  readonly coercion: CliValueCoercion | null;
 };
 
-export type CliHelpRender = (
-  surface: CliHelpSurface,
-  context: CliHelpRenderContext,
-) => string;
+export type CliParameterView =
+  | (CliParameterBase & {
+      readonly kind: typeof CLI_ARG_KIND.option;
+      readonly optionKind: typeof CLI_OPTION_KIND.booleanFlag;
+      readonly flags: readonly CliOptionFlag[];
+      readonly negativeFlags: readonly CliLongOptionFlag[];
+      readonly valueName: null;
+      readonly valueMode: null;
+    })
+  | (CliParameterBase & {
+      readonly kind: typeof CLI_ARG_KIND.option;
+      readonly optionKind: typeof CLI_OPTION_KIND.value;
+      readonly flags: readonly CliOptionFlag[];
+      readonly negativeFlags: readonly [];
+      readonly valueName: string;
+      readonly valueMode: CliOptionValueMode;
+    })
+  | (CliParameterBase & {
+      readonly kind: typeof CLI_ARG_KIND.positional;
+      readonly valueName: string;
+      readonly variadic: boolean;
+    });
 
-export type CliHelpSurfaceLocation = {
-  readonly surface: CliHelpSurface;
-  readonly path: CliCommandPath;
+export type CliInputPlan<Values extends RawValueMap, Input> = InputPlan<
+  Values,
+  Input
+> & {
+  readonly parseOptions: (raw: RawValueMap) => Input;
 };
 
-export type CliEndpointLocation = {
-  readonly endpoint: EntryTreeEndpoint;
+export type CliRegistration<
+  Values extends RawValueMap,
+  Input,
+  Context,
+  Output,
+> = Omit<
+  Registration<Values, Input, Context, Output>,
+  "binding" | "input" | "parameters"
+> & {
   readonly path: CliCommandPath;
-  /** The normalized CLI parameter binding compiled for this exact endpoint. */
-  readonly binding: CliEntryBinding;
+  readonly binding: EntryChannelBinding<typeof CHANNEL.cli, CliEntryBinding>;
+  readonly parameters: readonly CliParameterView[];
+  readonly input: CliInputPlan<Values, Input>;
 };
 
-export type CliRouterResult =
-  | {
-      readonly kind: typeof CLI_ROUTER_RESULT_KIND.resolved;
-      readonly path: readonly string[];
-      readonly endpoint: EntryTreeEndpoint;
-      readonly projection: unknown;
-    }
-  | {
-      readonly kind: typeof CLI_ROUTER_RESULT_KIND.unknownCommand;
-      readonly path: readonly string[];
-      readonly token: string;
-    }
-  | {
-      readonly kind: typeof CLI_ROUTER_RESULT_KIND.incompleteCommand;
-      readonly path: readonly string[];
-    }
-  | {
-      readonly kind: typeof CLI_ROUTER_RESULT_KIND.invalidInput;
-      readonly path: readonly string[];
-      readonly issues: readonly string[];
-    }
-  | {
-      readonly kind: typeof CLI_ROUTER_RESULT_KIND.invalidParameter;
-      readonly path: readonly string[];
-      readonly parameterName: string;
-      readonly issues: readonly string[];
-    }
-  | {
-      readonly kind: typeof CLI_ROUTER_RESULT_KIND.internalError;
-      readonly path: readonly string[];
-      readonly error: unknown;
-    };
-
-export type CliResolvedEndpointResult<Endpoint extends EntryTreeEndpoint> =
-  Omit<
-    Extract<
-      CliRouterResult,
-      { readonly kind: typeof CLI_ROUTER_RESULT_KIND.resolved }
-    >,
-    "endpoint" | "projection"
-  > & {
-    readonly endpoint: Endpoint;
-    readonly projection: ReturnType<Endpoint["entry"]["project"]>;
-  };
-
-export function isCliResolvedEndpoint<const Endpoint extends EntryTreeEndpoint>(
-  result: CliRouterResult,
-  endpoint: Endpoint,
-): result is CliResolvedEndpointResult<Endpoint> {
-  return (
-    result.kind === CLI_ROUTER_RESULT_KIND.resolved &&
-    result.endpoint === endpoint
-  );
+export interface CliRegistrationCollection<Context, Output> {
+  readonly length: number;
+  readonly forEach: (
+    visit: <Values extends RawValueMap, Input>(
+      item: CliRegistration<Values, Input, Context, Output>,
+    ) => void,
+  ) => void;
 }
 
-export interface CliRouter {
+export type CliCommandNode<Context, Output> = {
+  readonly token: string;
+  readonly path: CliCommandPath;
+  readonly description: string;
+  readonly documentation: import("./model.js").CommandDocumentation;
   readonly help: CliHelpSurface;
-  readonly endpoints: readonly EntryTreeEndpoint[];
-  readonly endpointLocations: readonly CliEndpointLocation[];
-  resolve(argv: readonly string[]): CliRouterResult;
-}
+  readonly commands: CliRegistrationCollection<Context, Output>;
+  readonly children: readonly CliCommandNode<Context, Output>[];
+};
+
+export type CliCommandTree<Context, Output> = {
+  readonly root: CliCommandNode<Context, Output>;
+};

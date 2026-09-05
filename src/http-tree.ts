@@ -1,494 +1,308 @@
 import {
   compileHttpBinding,
-  type CompiledHttpEndpoint,
   isHttpEntryBinding,
   isHttpSegment,
 } from "./http-compiler.js";
-import {
-  HTTP_METHOD,
-  HTTP_ROUTER_RESULT_KIND,
-  type HttpRoute,
-  type HttpRouter,
-  type HttpRouterResult,
-} from "./http-model.js";
 import type {
-  EntryTreeDefinition,
+  HttpEntryBinding,
+  HttpQueryMap,
+  HttpRouteCollection,
+} from "./http-model.js";
+import { compileInputPlan } from "./input-compiler.js";
+import type {
+  EntryChannelBinding,
+  EntryTreeEndpoint,
   EntryTreeNode,
-  RawValueMap,
+  ErasedParameterDefinition,
 } from "./model.js";
-import { decodeEntryInput, type EntryDecodeResult } from "./runtime.js";
+import { ownedArray, ownedRecord } from "./owned.js";
+import {
+  type ContextFor,
+  type EndpointForChannel,
+  type EndpointsOfSource,
+  type EntryTreeSource,
+  type OutputFor,
+  packRegistrationCollection,
+} from "./registration.js";
+import { EntryInputError } from "./runtime.js";
 import {
   EntryTreeDefinitionError,
   findChannelBinding,
   formatTreePath,
+  isEntryTreeDefinition,
   validateEntryTreeStructure,
 } from "./schema.js";
 import { coerceStringValue } from "./string-coercion.js";
 import {
   CHANNEL,
-  ENTRY_DECODE_RESULT_KIND,
+  ENTRY_INPUT_TARGET_KIND,
   VALUE_SHAPE_KIND,
 } from "./values.js";
 
-const DEFAULT_MAX_BODY_BYTES = 1_048_576;
-const HTTP_SEGMENT_PATTERN = /^[A-Za-z0-9._~-]+$/;
+type HttpEndpointFor<Source extends EntryTreeSource> = EndpointForChannel<
+  EndpointsOfSource<Source>,
+  typeof CHANNEL.http
+>;
 
-const HTTP_RAW_RESULT_KIND = {
-  raw: "raw",
-  invalidInput: "invalid_input",
-  invalidParameter: "invalid_parameter",
-} as const;
-
-const HTTP_BODY_RESULT_KIND = {
-  body: "body",
-  tooLarge: "too_large",
-} as const;
-
-type CompiledHttpRoute = {
-  readonly route: HttpRoute;
-  readonly compiledEndpoint: CompiledHttpEndpoint;
+type ErasedHttpRegistration = {
+  readonly endpoint: EntryTreeEndpoint;
+  readonly method: string;
+  readonly path: string;
 };
 
-type HttpNodeFrame = {
-  readonly node: EntryTreeNode;
-  readonly logicalPath: readonly string[];
-  readonly segments: readonly string[];
-  readonly root: boolean;
-};
-
-type HttpRawResult =
-  | {
-      readonly kind: typeof HTTP_RAW_RESULT_KIND.raw;
-      readonly raw: RawValueMap;
-    }
-  | {
-      readonly kind: typeof HTTP_RAW_RESULT_KIND.invalidInput;
-      readonly issues: readonly string[];
-    }
-  | {
-      readonly kind: typeof HTTP_RAW_RESULT_KIND.invalidParameter;
-      readonly parameterName: string;
-      readonly issues: readonly string[];
-    };
-
-type HttpBodyResult =
-  | {
-      readonly kind: typeof HTTP_BODY_RESULT_KIND.body;
-      readonly text: string;
-    }
-  | { readonly kind: typeof HTTP_BODY_RESULT_KIND.tooLarge };
-
-export function createHttpRouter(
-  tree: EntryTreeDefinition,
-  options?: { readonly maxBodyBytes?: number },
-): HttpRouter {
-  const routes = compileHttpTree(tree);
-  const maxBodyBytes = options?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
-  const routesByPath = indexRoutesByPath(routes);
-  return {
-    routes: routes.map((compiled) => compiled.route),
-    endpoints: routes.map((compiled) => compiled.route.endpoint),
-    resolve: async (request) =>
-      await resolveHttp(routesByPath, request, maxBodyBytes),
-  };
-}
-
-function compileHttpTree(
-  tree: EntryTreeDefinition,
-): readonly CompiledHttpRoute[] {
-  const issues = [...validateEntryTreeStructure(tree)];
-  validateRootHttpSegment(tree.root, issues);
-  const routes: CompiledHttpRoute[] = [];
-  let rootRoute: CompiledHttpRoute | null = null;
-  const pending: HttpNodeFrame[] = [
+export function collectHttpRoutes<const Source extends EntryTreeSource>(
+  source: Source,
+): HttpRouteCollection<
+  ContextFor<HttpEndpointFor<Source>>,
+  OutputFor<HttpEndpointFor<Source>>
+> {
+  const structuralIssues = validateEntryTreeStructure(source);
+  if (structuralIssues.length > 0) {
+    throw new EntryTreeDefinitionError(structuralIssues);
+  }
+  const issues: string[] = [];
+  const registrations: ErasedHttpRegistration[] = [];
+  const tree = isEntryTreeDefinition(source);
+  const root = sourceRoot(source);
+  const rootSegments = tree ? [] : [httpSegmentFor(root, [root.name], issues)];
+  const pending: HttpFrame[] = [
     {
-      node: tree.root,
-      logicalPath: [tree.root.name],
-      segments: [],
-      root: true,
+      node: root,
+      logicalPath: [root.name],
+      segments: rootSegments,
     },
   ];
   while (pending.length > 0) {
-    const current = pending.pop();
-    if (!current) {
+    const frame = pending.pop();
+    if (frame === undefined) {
       continue;
     }
-    const compiledEndpoint = httpEndpointFor(current, issues);
-    if (compiledEndpoint !== null) {
-      const route = createCompiledRoute(current.segments, compiledEndpoint);
-      if (current.root) {
-        rootRoute = route;
-      } else {
-        routes.push(route);
+    compileNodeRoutes(frame, registrations, issues);
+    for (let index = frame.node.children.length - 1; index >= 0; index -= 1) {
+      const child = frame.node.children[index];
+      if (child !== undefined) {
+        const logicalPath = [...frame.logicalPath, child.name];
+        pending.push({
+          node: child,
+          logicalPath,
+          segments: [
+            ...frame.segments,
+            httpSegmentFor(child, logicalPath, issues),
+          ],
+        });
       }
     }
-    const children = httpChildFrames(current, issues);
-    pending.push(...children.reverse());
   }
-  if (rootRoute !== null) {
-    routes.push(rootRoute);
-  }
-  if (routes.length === 0) {
-    issues.push("entry tree has no HTTP endpoint");
-  }
+  const unique = deduplicateRoutes(registrations, issues);
   if (issues.length > 0) {
     throw new EntryTreeDefinitionError(issues);
   }
-  return routes;
+  return packRegistrationCollection<
+    HttpRouteCollection<
+      ContextFor<HttpEndpointFor<Source>>,
+      OutputFor<HttpEndpointFor<Source>>
+    >
+  >(unique);
 }
 
-function validateRootHttpSegment(root: EntryTreeNode, issues: string[]): void {
-  const override = root.segments.find((row) => row.channel === CHANNEL.http);
-  if (override !== undefined && !isHttpSegment(override.segment)) {
-    issues.push(
-      `${formatTreePath([root.name])}: invalid HTTP segment override`,
+function compileNodeRoutes(
+  frame: HttpFrame,
+  output: ErasedHttpRegistration[],
+  issues: string[],
+): void {
+  const endpoints = [...new Set(frame.node.endpoints)];
+  for (const endpoint of endpoints) {
+    const channelBinding = findChannelBinding(endpoint, CHANNEL.http);
+    if (channelBinding === null) {
+      continue;
+    }
+    const location = `${formatTreePath(frame.logicalPath)}#${endpoint.entry.name}`;
+    if (!isHttpChannelBinding(channelBinding)) {
+      issues.push(`${location}: invalid HTTP endpoint binding`);
+      continue;
+    }
+    const method = channelBinding.binding.method;
+    if (method.length === 0 || /\s/u.test(method)) {
+      issues.push(
+        `${location}: HTTP method must be non-empty and contain no whitespace`,
+      );
+    }
+    const compiled = compileHttpBinding(
+      endpoint,
+      channelBinding.binding,
+      location,
+      issues,
+    );
+    output.push(
+      createHttpRegistration(
+        endpoint,
+        channelBinding,
+        compiled,
+        frame.segments,
+      ),
     );
   }
 }
 
-function httpChildFrames(
-  parent: HttpNodeFrame,
-  issues: string[],
-): HttpNodeFrame[] {
-  const frames: HttpNodeFrame[] = [];
-  const owners = new Map<string, string>();
-  for (const child of parent.node.children) {
-    const logicalPath = [...parent.logicalPath, child.name];
-    const segment = httpSegmentFor(child, logicalPath, issues);
-    const owner = owners.get(segment);
-    if (owner !== undefined) {
-      issues.push(
-        `${formatTreePath(parent.logicalPath)}: HTTP sibling segment collision ${JSON.stringify(segment)} between ${owner} and ${child.name}`,
+function createHttpRegistration(
+  endpoint: EntryTreeEndpoint,
+  channelBinding: EntryChannelBinding,
+  compiled: ReturnType<typeof compileHttpBinding>,
+  segments: readonly string[],
+) {
+  const input = compileInputPlan({
+    entry: endpoint.entry,
+    bindings: compiled.parameterBindings,
+  });
+  const parseQuery = (raw: HttpQueryMap): unknown =>
+    input.parseCoerced(raw, coerceHttpQueryValue);
+  return ownedRecord({
+    endpoint,
+    entry: endpoint.entry,
+    binding: channelBinding,
+    method: compiled.binding.method,
+    path: `/${segments.join("/")}`,
+    segments: ownedArray(segments),
+    parameters: compiled.parameters,
+    input: ownedRecord({
+      schema: input.schema,
+      parse: input.parse,
+      project: input.project,
+      parseQuery,
+    }),
+    handler: endpoint.handler,
+  });
+}
+
+function coerceHttpQueryValue(
+  parameter: ErasedParameterDefinition,
+  raw: unknown,
+): unknown {
+  if (parameter.codec.shape.kind === VALUE_SHAPE_KIND.array) {
+    if (!isHttpQueryValue(raw)) {
+      throw parameterInputError(
+        parameter.name,
+        "HTTP query value must be a string or string array",
       );
-    } else {
-      owners.set(segment, child.name);
     }
-    frames.push({
-      node: child,
-      logicalPath,
-      segments: [...parent.segments, segment],
-      root: false,
-    });
+    return coerceStringValue(parameter.codec.shape, raw);
   }
-  return frames;
+  const scalar = scalarQueryValue(parameter.name, raw);
+  return coerceStringValue(parameter.codec.shape, scalar);
+}
+
+function scalarQueryValue(parameterName: string, raw: unknown): string {
+  if (typeof raw === "string") {
+    return raw;
+  }
+  if (!Array.isArray(raw) || !raw.every((item) => typeof item === "string")) {
+    throw parameterInputError(
+      parameterName,
+      "HTTP query scalar must be a string or one-element array",
+    );
+  }
+  if (raw.length !== 1) {
+    throw parameterInputError(
+      parameterName,
+      raw.length === 0
+        ? "HTTP query scalar must not be an empty array"
+        : "Duplicate HTTP query scalar",
+    );
+  }
+  const value = raw[0];
+  if (value === undefined) {
+    throw parameterInputError(parameterName, "HTTP query scalar is missing");
+  }
+  return value;
+}
+
+function parameterInputError(
+  parameterName: string,
+  issue: string,
+): EntryInputError {
+  return new EntryInputError([issue], {
+    kind: ENTRY_INPUT_TARGET_KIND.parameter,
+    parameterName,
+  });
+}
+
+function isHttpQueryValue(raw: unknown): raw is string | readonly string[] {
+  return (
+    typeof raw === "string" ||
+    (Array.isArray(raw) && raw.every((item) => typeof item === "string"))
+  );
 }
 
 function httpSegmentFor(
   node: EntryTreeNode,
-  logicalPath: readonly string[],
+  path: readonly string[],
   issues: string[],
 ): string {
   const override = node.segments.find((row) => row.channel === CHANNEL.http);
   let segment = node.name;
   if (override !== undefined) {
-    if (isHttpSegment(override.segment)) {
-      segment = override.segment.segment;
+    if (!isHttpSegment(override.segment)) {
+      issues.push(`${formatTreePath(path)}: invalid HTTP segment override`);
     } else {
-      issues.push(
-        `${formatTreePath(logicalPath)}: invalid HTTP segment override`,
-      );
+      segment = override.segment.segment;
     }
   }
-  if (!HTTP_SEGMENT_PATTERN.test(segment)) {
+  if (
+    segment.length === 0 ||
+    segment.includes("/") ||
+    /\s/u.test(segment) ||
+    containsControlCharacter(segment)
+  ) {
     issues.push(
-      `${formatTreePath(logicalPath)}: HTTP segment ${JSON.stringify(segment)} must be a URL-safe path segment`,
+      `${formatTreePath(path)}: HTTP segment must be non-empty and contain no slash, whitespace, or control character`,
     );
   }
   return segment;
 }
 
-function httpEndpointFor(
-  frame: HttpNodeFrame,
+function containsControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint !== undefined && (codePoint <= 31 || codePoint === 127)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function deduplicateRoutes(
+  routes: readonly ErasedHttpRegistration[],
   issues: string[],
-): CompiledHttpEndpoint | null {
-  const endpoints = frame.node.endpoints.filter((endpoint) =>
-    endpoint.channels.some((binding) => binding.channel === CHANNEL.http),
-  );
-  const location = formatTreePath(frame.logicalPath);
-  if (endpoints.length > 1) {
-    issues.push(`${location}: more than one HTTP endpoint`);
-  }
-  const endpoint = endpoints[0];
-  if (endpoint === undefined) {
-    return null;
-  }
-  const channelBinding = findChannelBinding(endpoint, CHANNEL.http);
-  if (channelBinding === null || !isHttpEntryBinding(channelBinding.binding)) {
-    issues.push(`${location}: invalid HTTP endpoint binding`);
-    return null;
-  }
-  return compileHttpBinding(
-    endpoint,
-    channelBinding.binding,
-    `${location}#${endpoint.entry.name}`,
-    issues,
-  );
-}
-
-function createCompiledRoute(
-  segments: readonly string[],
-  compiledEndpoint: CompiledHttpEndpoint,
-): CompiledHttpRoute {
-  return {
-    route: {
-      method: compiledEndpoint.binding.method,
-      path: `/${segments.join("/")}`,
-      segments,
-      endpoint: compiledEndpoint.endpoint,
-      parameters: compiledEndpoint.parameters,
-    },
-    compiledEndpoint,
-  };
-}
-
-function indexRoutesByPath(
-  routes: readonly CompiledHttpRoute[],
-): ReadonlyMap<string, readonly CompiledHttpRoute[]> {
-  const indexed = new Map<string, CompiledHttpRoute[]>();
+): readonly ErasedHttpRegistration[] {
+  const indexed = new Map<string, ErasedHttpRegistration>();
   for (const route of routes) {
-    const matches = indexed.get(route.route.path);
-    if (matches === undefined) {
-      indexed.set(route.route.path, [route]);
-    } else {
-      matches.push(route);
+    const key = JSON.stringify([route.method, route.path]);
+    const existing = indexed.get(key);
+    if (existing === undefined) {
+      indexed.set(key, route);
+    } else if (existing.endpoint !== route.endpoint) {
+      issues.push(
+        `HTTP route ${route.method} ${route.path} is owned by different endpoints`,
+      );
     }
   }
-  return indexed;
+  return [...indexed.values()];
 }
 
-async function resolveHttp(
-  routesByPath: ReadonlyMap<string, readonly CompiledHttpRoute[]>,
-  request: Request,
-  maxBodyBytes: number,
-): Promise<HttpRouterResult> {
-  let path = "/";
-  try {
-    const url = new URL(request.url);
-    path = url.pathname;
-    const pathRoutes = routesByPath.get(path);
-    if (pathRoutes === undefined) {
-      return { kind: HTTP_ROUTER_RESULT_KIND.notFound, path };
-    }
-    const route = pathRoutes.find(
-      (candidate) => candidate.route.method === request.method,
-    );
-    if (route === undefined) {
-      return {
-        kind: HTTP_ROUTER_RESULT_KIND.methodNotAllowed,
-        path,
-        allowed: uniqueMethods(pathRoutes),
-      };
-    }
-    const rawResult =
-      route.route.method === HTTP_METHOD.get
-        ? rawGetInput(route, url)
-        : await rawPostInput(route, request, maxBodyBytes);
-    if (rawResult.kind !== HTTP_RAW_RESULT_KIND.raw) {
-      return { ...rawResult, path };
-    }
-    return decodeHttpInput(route, rawResult.raw, request, path);
-  } catch (error) {
-    return { kind: HTTP_ROUTER_RESULT_KIND.internalError, path, error };
-  }
+type HttpFrame = {
+  readonly node: EntryTreeNode;
+  readonly logicalPath: readonly string[];
+  readonly segments: readonly string[];
+};
+
+function sourceRoot(source: EntryTreeSource): EntryTreeNode {
+  return isEntryTreeDefinition(source) ? source.root : source;
 }
 
-function uniqueMethods(
-  routes: readonly CompiledHttpRoute[],
-): readonly (typeof routes)[number]["route"]["method"][] {
-  return [...new Set(routes.map((route) => route.route.method))];
-}
-
-function rawGetInput(route: CompiledHttpRoute, url: URL): HttpRawResult {
-  const unknownIssues = unknownParameterIssues(
-    url.searchParams.keys(),
-    route.compiledEndpoint.parameterNames,
+function isHttpChannelBinding(
+  binding: EntryChannelBinding,
+): binding is EntryChannelBinding<typeof CHANNEL.http, HttpEntryBinding> {
+  return (
+    binding.channel === CHANNEL.http && isHttpEntryBinding(binding.binding)
   );
-  if (unknownIssues.length > 0) {
-    return { kind: HTTP_RAW_RESULT_KIND.invalidInput, issues: unknownIssues };
-  }
-  const raw = new Map<string, unknown>();
-  for (const parameterName of route.compiledEndpoint.parameterNames) {
-    const values = url.searchParams.getAll(parameterName);
-    if (values.length === 0) {
-      continue;
-    }
-    const parameter = route.compiledEndpoint.endpoint.entry.parameters.find(
-      (candidate) => candidate.name === parameterName,
-    );
-    if (
-      parameter?.codec.shape.kind !== VALUE_SHAPE_KIND.array &&
-      values.length > 1
-    ) {
-      return {
-        kind: HTTP_RAW_RESULT_KIND.invalidParameter,
-        parameterName,
-        issues: [`Parameter ${parameterName} accepts a single value`],
-      };
-    }
-    raw.set(
-      parameterName,
-      parameter?.codec.shape.kind === VALUE_SHAPE_KIND.array
-        ? values
-        : values[0],
-    );
-  }
-  return { kind: HTTP_RAW_RESULT_KIND.raw, raw: createRawValueMap(raw) };
-}
-
-async function rawPostInput(
-  route: CompiledHttpRoute,
-  request: Request,
-  maxBodyBytes: number,
-): Promise<HttpRawResult> {
-  if (mediaType(request.headers.get("content-type")) !== "application/json") {
-    return invalidRawInput("Expected an application/json request body");
-  }
-  const body = await readRequestBody(request, maxBodyBytes);
-  if (body.kind === HTTP_BODY_RESULT_KIND.tooLarge) {
-    return invalidRawInput(`Request body exceeds ${maxBodyBytes} bytes`);
-  }
-  let parsed: unknown = {};
-  if (body.text.length > 0) {
-    try {
-      parsed = JSON.parse(body.text) as unknown;
-    } catch {
-      return invalidRawInput("Request body is not valid JSON");
-    }
-  }
-  if (!isJsonObject(parsed)) {
-    return invalidRawInput("Request body must be a JSON object");
-  }
-  const unknownIssues = unknownParameterIssues(
-    Object.keys(parsed),
-    route.compiledEndpoint.parameterNames,
-  );
-  return unknownIssues.length > 0
-    ? { kind: HTTP_RAW_RESULT_KIND.invalidInput, issues: unknownIssues }
-    : {
-        kind: HTTP_RAW_RESULT_KIND.raw,
-        raw: createRawValueMap(Object.entries(parsed)),
-      };
-}
-
-function mediaType(contentType: string | null): string | null {
-  return contentType?.split(";", 1)[0]?.trim().toLowerCase() ?? null;
-}
-
-function isJsonObject(value: unknown): value is RawValueMap {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function createRawValueMap(
-  entries: Iterable<readonly [string, unknown]>,
-): RawValueMap {
-  const raw = Object.create(null) as RawValueMap;
-  for (const [name, value] of entries) {
-    Reflect.set(raw, name, value);
-  }
-  return raw;
-}
-
-async function readRequestBody(
-  request: Request,
-  maxBodyBytes: number,
-): Promise<HttpBodyResult> {
-  if (request.body === null) {
-    return { kind: HTTP_BODY_RESULT_KIND.body, text: "" };
-  }
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  const reader = request.body.getReader();
-  while (true) {
-    const next = await reader.read();
-    if (next.done) {
-      break;
-    }
-    total += next.value.byteLength;
-    if (total > maxBodyBytes) {
-      void reader.cancel().catch(() => undefined);
-      return { kind: HTTP_BODY_RESULT_KIND.tooLarge };
-    }
-    chunks.push(next.value);
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return {
-    kind: HTTP_BODY_RESULT_KIND.body,
-    text: new TextDecoder().decode(bytes),
-  };
-}
-
-function unknownParameterIssues(
-  names: Iterable<string>,
-  parameterNames: readonly string[],
-): readonly string[] {
-  const exposed = new Set(parameterNames);
-  return [...new Set(names)]
-    .filter((name) => !exposed.has(name))
-    .map((name) => `Unknown parameter: ${name}`);
-}
-
-function invalidRawInput(issue: string): HttpRawResult {
-  return { kind: HTTP_RAW_RESULT_KIND.invalidInput, issues: [issue] };
-}
-
-function decodeHttpInput(
-  route: CompiledHttpRoute,
-  raw: RawValueMap,
-  request: Request,
-  path: string,
-): HttpRouterResult {
-  const decoded = decodeEntryInput({
-    entry: route.compiledEndpoint.endpoint.entry,
-    parameterNames: route.compiledEndpoint.parameterNames,
-    raw,
-    ...(route.route.method === HTTP_METHOD.get
-      ? {
-          coerce: (parameter, value) =>
-            coerceStringValue(parameter.codec.shape, value),
-        }
-      : {}),
-  });
-  return mapDecodedResult(decoded, route.route.endpoint, request, path);
-}
-
-function mapDecodedResult(
-  decoded: EntryDecodeResult<unknown>,
-  endpoint: CompiledHttpRoute["route"]["endpoint"],
-  request: Request,
-  path: string,
-): HttpRouterResult {
-  switch (decoded.kind) {
-    case ENTRY_DECODE_RESULT_KIND.resolved:
-      return {
-        kind: HTTP_ROUTER_RESULT_KIND.resolved,
-        path,
-        endpoint,
-        projection: decoded.projection,
-        request,
-      };
-    case ENTRY_DECODE_RESULT_KIND.invalidInput:
-      return {
-        kind: HTTP_ROUTER_RESULT_KIND.invalidInput,
-        path,
-        issues: decoded.issues,
-      };
-    case ENTRY_DECODE_RESULT_KIND.invalidParameter:
-      return {
-        kind: HTTP_ROUTER_RESULT_KIND.invalidParameter,
-        path,
-        parameterName: decoded.parameterName,
-        issues: decoded.issues,
-      };
-    case ENTRY_DECODE_RESULT_KIND.internalError:
-      return {
-        kind: HTTP_ROUTER_RESULT_KIND.internalError,
-        path,
-        error: decoded.error,
-      };
-  }
 }

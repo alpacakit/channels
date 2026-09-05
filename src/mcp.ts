@@ -1,170 +1,199 @@
-import type { JsonObject } from "@alpacakit/core";
-import type { z } from "zod";
 import {
-  type CompiledParameterBinding,
-  compileParameterBindings,
+  compileParameterExclusions,
   PARAMETER_BINDING_ISSUE_KIND,
   type ParameterBindingIssue,
 } from "./binding-compiler.js";
-import { requireEntryOutput } from "./contract.js";
+import { compileInputPlan } from "./input-compiler.js";
+import { describeEntry, type ParameterDescription } from "./introspection.js";
 import type {
   EntryChannelBinding,
-  EntryDefinitionWithOutput,
   EntryTreeEndpoint,
-  ParameterSet,
   RawValueMap,
 } from "./model.js";
-import { decodeEntryInput, type EntryDecodeResult } from "./runtime.js";
-import { EntryTreeDefinitionError, findChannelBinding } from "./schema.js";
+import { ownedArray, ownedRecord } from "./owned.js";
+import type { InputPlan, Registration } from "./registration.js";
+import {
+  type ContextFor,
+  type EndpointForChannel,
+  type EndpointsOfSource,
+  type EntryTreeSource,
+  type OutputFor,
+  packRegistrationCollection,
+} from "./registration.js";
+import {
+  EntryTreeDefinitionError,
+  findChannelBinding,
+  validateEntryTreeStructure,
+  visitEntryTreeSource,
+} from "./schema.js";
 import {
   createEntryChannelBinding,
   isChannelPayload,
   PAYLOAD_KIND,
   registerChannelPayload,
 } from "./tree-internal.js";
-import {
-  CHANNEL,
-  ENTRY_DECODE_RESULT_KIND,
-  PARAMETER_REQUIREMENT_KIND,
-} from "./values.js";
+import { CHANNEL } from "./values.js";
 
-const ZOD_SCHEMA_TYPE = {
-  object: "object",
-  readonly: "readonly",
-} as const;
-
-export type McpBinding<Parameters extends ParameterSet = ParameterSet> = {
-  readonly exclude: readonly Parameters[number]["name"][];
+export type McpBinding<
+  Name extends string = string,
+  Excluded extends readonly string[] = readonly string[],
+> = {
+  readonly name: Name;
+  readonly exclude: Excluded;
 };
 
 export function bindMcpEntry<
+  const Name extends string,
   const Excluded extends readonly string[] = readonly [],
->(input?: {
+>(input: {
+  readonly name: Name;
   readonly exclude?: Excluded;
-}): EntryChannelBinding<typeof CHANNEL.mcp, Excluded[number]> {
-  const payload = { exclude: input?.exclude ?? [] } satisfies McpBinding;
+}): EntryChannelBinding<typeof CHANNEL.mcp, McpBinding<Name, Excluded>> {
+  const payload = ownedRecord({
+    name: input.name,
+    exclude: ownedArray(input.exclude ?? []),
+  }) as McpBinding<Name, Excluded>;
   registerChannelPayload(PAYLOAD_KIND.mcpBinding, payload);
   return createEntryChannelBinding(CHANNEL.mcp, payload);
 }
 
-export type McpEntryParseResult<Entry extends EntryTreeEndpoint["entry"]> =
-  EntryDecodeResult<ReturnType<Entry["project"]>>;
+export type McpRegistration<
+  Values extends RawValueMap,
+  Input,
+  Context,
+  Output,
+> = Omit<Registration<Values, Input, Context, Output>, "binding"> & {
+  readonly binding: EntryChannelBinding<typeof CHANNEL.mcp, McpBinding>;
+  readonly name: string;
+  readonly parameters: readonly ParameterDescription[];
+  readonly input: InputPlan<Values, Input>;
+};
 
-export type McpResolvedEntry<Entry extends EntryTreeEndpoint["entry"]> =
-  Extract<
-    McpEntryParseResult<Entry>,
-    { readonly kind: typeof ENTRY_DECODE_RESULT_KIND.resolved }
-  >;
-
-/**
- * A compiled MCP endpoint. The binding is validated and compiled once by
- * `createMcpEndpoint()`, so definition errors surface eagerly (like the CLI
- * router) and `parse()` does no per-invocation recompilation.
- */
-export interface McpEndpoint<Entry extends EntryTreeEndpoint["entry"]> {
-  /** Raw Zod object shape for MCP tool registration. */
-  readonly inputSchema: Record<string, z.ZodType>;
-  /** Decode and project one MCP invocation through the endpoint. */
-  parse(raw: RawValueMap): McpEntryParseResult<Entry>;
+export interface McpToolCollection<Context, Output> {
+  readonly length: number;
+  readonly forEach: (
+    visit: <Values extends RawValueMap, Input>(
+      item: McpRegistration<Values, Input, Context, Output>,
+    ) => void,
+  ) => void;
 }
 
-export function createMcpEndpoint<
-  const Entry extends EntryTreeEndpoint["entry"],
->(endpoint: EntryTreeEndpoint<Entry>): McpEndpoint<Entry> {
-  const bindings = resolveMcpBindings(endpoint);
-  const parameterNames = bindings.map((binding) => binding.parameter.name);
-  const inputSchema = buildMcpInputSchema(bindings);
-  return {
-    inputSchema,
-    parse: (raw) =>
-      decodeEntryInput({
-        entry: endpoint.entry,
-        parameterNames,
-        raw,
-      }),
-  };
-}
+type McpEndpointFor<Source extends EntryTreeSource> = EndpointForChannel<
+  EndpointsOfSource<Source>,
+  typeof CHANNEL.mcp
+>;
 
-export function isMcpResolved<Entry extends EntryTreeEndpoint["entry"]>(
-  result: McpEntryParseResult<Entry>,
-): result is McpResolvedEntry<Entry> {
-  return result.kind === ENTRY_DECODE_RESULT_KIND.resolved;
-}
+type ErasedMcpRegistration = {
+  readonly endpoint: EntryTreeEndpoint;
+  readonly name: string;
+};
 
-function buildMcpInputSchema(
-  bindings: readonly CompiledParameterBinding[],
-): Record<string, z.ZodType> {
-  const shape: Record<string, z.ZodType> = {};
-  for (const binding of bindings) {
-    const { parameter } = binding;
-    const describedSchema = parameter.codec.schema.describe(
-      parameter.description,
-    );
-    shape[parameter.name] =
-      parameter.requirement.kind !== PARAMETER_REQUIREMENT_KIND.required
-        ? describedSchema.optional()
-        : describedSchema;
+export function collectMcpTools<const Source extends EntryTreeSource>(
+  source: Source,
+): McpToolCollection<
+  ContextFor<McpEndpointFor<Source>>,
+  OutputFor<McpEndpointFor<Source>>
+> {
+  const structuralIssues = validateEntryTreeStructure(source);
+  if (structuralIssues.length > 0) {
+    throw new EntryTreeDefinitionError(structuralIssues);
   }
-  return shape;
+  const issues: string[] = [];
+  const registrations: ErasedMcpRegistration[] = [];
+  const seenEndpoints = new Set<EntryTreeEndpoint>();
+  visitEntryTreeSource(source, {
+    visitNode() {},
+    visitEndpoint(endpoint) {
+      if (seenEndpoints.has(endpoint)) {
+        return;
+      }
+      const channelBinding = findChannelBinding(endpoint, CHANNEL.mcp);
+      if (channelBinding === null) {
+        return;
+      }
+      seenEndpoints.add(endpoint);
+      if (!isMcpChannelBinding(channelBinding)) {
+        issues.push(`${endpoint.entry.name}: invalid MCP binding`);
+        return;
+      }
+      const registration = compileMcpRegistration(
+        endpoint,
+        channelBinding,
+        channelBinding.binding,
+        issues,
+      );
+      registrations.push(registration);
+    },
+  });
+  validateMcpNames(registrations, issues);
+  if (issues.length > 0) {
+    throw new EntryTreeDefinitionError(issues);
+  }
+  return packRegistrationCollection<
+    McpToolCollection<
+      ContextFor<McpEndpointFor<Source>>,
+      OutputFor<McpEndpointFor<Source>>
+    >
+  >(registrations);
 }
 
-function resolveMcpBindings(
+function compileMcpRegistration(
   endpoint: EntryTreeEndpoint,
-): readonly CompiledParameterBinding[] {
-  const channelBindings = endpoint.channels.filter(
-    (candidate) => candidate.channel === CHANNEL.mcp,
-  );
-  const channelBinding = findChannelBinding(endpoint, CHANNEL.mcp);
-  if (
-    channelBindings.length !== 1 ||
-    !channelBinding ||
-    !isMcpBinding(channelBinding.binding)
-  ) {
-    throw new EntryTreeDefinitionError([
-      `${endpoint.entry.name}: endpoint must have exactly one valid MCP binding`,
-    ]);
+  channelBinding: EntryChannelBinding,
+  binding: McpBinding,
+  issues: string[],
+) {
+  if (binding.name.trim().length === 0) {
+    issues.push(`${endpoint.entry.name}: MCP name must not be blank`);
   }
-  const binding = channelBinding.binding;
-  const compilation = compileParameterBindings(
+  const compilation = compileParameterExclusions(
     endpoint.entry,
-    endpoint.entry.parameters
-      .filter((parameter) => !binding.exclude.includes(parameter.name))
-      .map((parameter) => ({ parameterName: parameter.name })),
+    binding.exclude,
   );
-  const issues = validateMcpExclusions(endpoint, binding.exclude);
   issues.push(
     ...compilation.issues.map((issue) =>
       formatMcpParameterBindingIssue(endpoint.entry.name, issue),
     ),
   );
-  if (issues.length > 0) {
-    throw new EntryTreeDefinitionError(issues);
-  }
-  return compilation.bindings;
+  const input = compileInputPlan({
+    entry: endpoint.entry,
+    bindings: compilation.bindings,
+  });
+  const exposed = new Set(input.parameterNames);
+  return ownedRecord({
+    endpoint,
+    entry: endpoint.entry,
+    binding: channelBinding,
+    name: binding.name,
+    parameters: ownedArray(
+      describeEntry(endpoint.entry).parameters.filter((parameter) =>
+        exposed.has(parameter.name),
+      ),
+    ),
+    input: ownedRecord({
+      schema: input.schema,
+      parse: input.parse,
+      project: input.project,
+    }),
+    handler: endpoint.handler,
+  });
 }
 
-function validateMcpExclusions(
-  endpoint: EntryTreeEndpoint,
-  exclusions: readonly string[],
-): string[] {
-  const issues: string[] = [];
-  const names = new Set<string>();
-  for (const name of exclusions) {
-    if (names.has(name)) {
+function validateMcpNames(
+  registrations: readonly ErasedMcpRegistration[],
+  issues: string[],
+): void {
+  const names = new Map<string, ErasedMcpRegistration>();
+  for (const registration of registrations) {
+    const existing = names.get(registration.name);
+    if (existing !== undefined && existing.endpoint !== registration.endpoint) {
       issues.push(
-        `${endpoint.entry.name}: duplicate MCP exclusion for parameter ${name}`,
+        `MCP name ${JSON.stringify(registration.name)} is owned by different endpoints`,
       );
-    }
-    names.add(name);
-    if (
-      !endpoint.entry.parameters.some((parameter) => parameter.name === name)
-    ) {
-      issues.push(
-        `${endpoint.entry.name}: MCP binding excludes nonexistent parameter ${name}`,
-      );
+    } else {
+      names.set(registration.name, registration);
     }
   }
-  return issues;
 }
 
 function formatMcpParameterBindingIssue(
@@ -174,6 +203,10 @@ function formatMcpParameterBindingIssue(
   switch (issue.kind) {
     case PARAMETER_BINDING_ISSUE_KIND.duplicate:
       return `${entryName}: duplicate exposed MCP parameter ${issue.parameterName}`;
+    case PARAMETER_BINDING_ISSUE_KIND.duplicateExclusion:
+      return `${entryName}: duplicate MCP exclusion for parameter ${issue.parameterName}`;
+    case PARAMETER_BINDING_ISSUE_KIND.nonexistentExclusion:
+      return `${entryName}: MCP excludes nonexistent parameter ${issue.parameterName}`;
     case PARAMETER_BINDING_ISSUE_KIND.nonexistent:
       return `${entryName}: MCP exposes nonexistent parameter ${issue.parameterName}`;
     case PARAMETER_BINDING_ISSUE_KIND.requiredUnreachable:
@@ -185,31 +218,8 @@ function isMcpBinding(value: unknown): value is McpBinding {
   return isChannelPayload(PAYLOAD_KIND.mcpBinding, value);
 }
 
-export function createMcpOutputSchema<
-  const Name extends string,
-  const Parameters extends ParameterSet,
-  Projection,
-  Output extends JsonObject,
->(
-  endpoint: EntryTreeEndpoint<
-    EntryDefinitionWithOutput<Name, Parameters, Projection, Output>
-  >,
-): z.ZodType<Output> {
-  resolveMcpBindings(endpoint);
-  const schema = requireEntryOutput(endpoint.entry).schema;
-  const normalized =
-    schema.type === ZOD_SCHEMA_TYPE.readonly ? unwrapZodSchema(schema) : schema;
-  if (normalized.type !== ZOD_SCHEMA_TYPE.object) {
-    throw new Error(
-      `Entry ${endpoint.entry.name} output contract must use a Zod object schema`,
-    );
-  }
-  return normalized;
-}
-
-function unwrapZodSchema<Output>(schema: z.ZodType<Output>): z.ZodType<Output> {
-  const wrapper = schema as z.ZodType<Output> & {
-    unwrap(): z.ZodType<Output>;
-  };
-  return wrapper.unwrap();
+function isMcpChannelBinding(
+  binding: EntryChannelBinding,
+): binding is EntryChannelBinding<typeof CHANNEL.mcp, McpBinding> {
+  return binding.channel === CHANNEL.mcp && isMcpBinding(binding.binding);
 }

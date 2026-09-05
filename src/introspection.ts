@@ -6,10 +6,20 @@ import type {
   ErasedEntryDefinition,
   ValueShape,
 } from "./model.js";
-import { visitEntryTree } from "./schema.js";
+import {
+  ownedArray,
+  ownedRecord,
+  snapshotJsonValue,
+  snapshotValueShape,
+} from "./owned.js";
+import {
+  EntryTreeDefinitionError,
+  validateEntryTreeStructure,
+  visitEntryTree,
+} from "./schema.js";
 import {
   ENTRY_OUTPUT_DESCRIPTION_KIND,
-  type PARAMETER_REQUIREMENT_KIND,
+  PARAMETER_REQUIREMENT_KIND,
 } from "./values.js";
 
 const ENTRY_INTROSPECTION_ERROR = {
@@ -61,51 +71,66 @@ type EntryDescriptionFrame = {
 };
 
 export function describeEntry(entry: ErasedEntryDefinition): EntryDescription {
-  return {
+  return ownedRecord({
     name: entry.name,
-    parameters: entry.parameters.map((parameter) => ({
-      name: parameter.name,
-      description: parameter.description,
-      requirement: describeParameterRequirement(parameter.requirement),
-      shape: parameter.codec.shape,
-    })),
-    output: {
+    parameters: ownedArray(
+      entry.parameters.map((parameter) =>
+        ownedRecord({
+          name: parameter.name,
+          description: parameter.description,
+          requirement: describeParameterRequirement(parameter.requirement),
+          shape: snapshotValueShape(parameter.codec.shape),
+        }),
+      ),
+    ),
+    output: ownedRecord({
       kind:
         entry.output === null
           ? ENTRY_OUTPUT_DESCRIPTION_KIND.none
           : ENTRY_OUTPUT_DESCRIPTION_KIND.typed,
-    },
-  };
+    }),
+  });
 }
 
 export function describeEntryTree(
   tree: EntryTreeDefinition,
 ): CommandDescription {
+  const issues = validateEntryTreeStructure(tree);
+  if (issues.length > 0) {
+    throw new EntryTreeDefinitionError(issues);
+  }
   const frames = new Map<EntryTreeNode, CommandDescription>();
   const entries: EntryDescriptionFrame[] = [];
   visitEntryTree(tree, {
     visitNode(node, path) {
-      entries.push({ node, path: path.slice(1) });
+      entries.push({ node, path: ownedArray(path.slice(1)) });
     },
     visitEndpoint() {},
   });
   for (const current of entries.reverse()) {
-    frames.set(current.node, {
-      path: current.path,
-      name: current.node.name,
-      description: current.node.description,
-      documentation: current.node.documentation,
-      endpoints: current.node.endpoints.map((endpoint) =>
-        describeEntry(endpoint.entry),
-      ),
-      children: current.node.children.map((child) => {
-        const description = frames.get(child);
-        if (description === undefined) {
-          throw new Error(ENTRY_INTROSPECTION_ERROR.missingChild);
-        }
-        return description;
+    frames.set(
+      current.node,
+      ownedRecord({
+        path: current.path,
+        name: current.node.name,
+        description: current.node.description,
+        documentation: current.node.documentation,
+        endpoints: ownedArray(
+          current.node.endpoints.map((endpoint) =>
+            describeEntry(endpoint.entry),
+          ),
+        ),
+        children: ownedArray(
+          current.node.children.map((child) => {
+            const description = frames.get(child);
+            if (description === undefined) {
+              throw new Error(ENTRY_INTROSPECTION_ERROR.missingChild);
+            }
+            return description;
+          }),
+        ),
       }),
-    });
+    );
   }
 
   const root = frames.get(tree.root);
@@ -118,5 +143,14 @@ export function describeEntryTree(
 export function describeParameterRequirement(
   requirement: ErasedEntryDefinition["parameters"][number]["requirement"],
 ): ParameterRequirementDescription {
-  return requirement;
+  switch (requirement.kind) {
+    case PARAMETER_REQUIREMENT_KIND.required:
+    case PARAMETER_REQUIREMENT_KIND.optional:
+      return ownedRecord({ kind: requirement.kind });
+    case PARAMETER_REQUIREMENT_KIND.optionalWithDefault:
+      return ownedRecord({
+        kind: requirement.kind,
+        defaultValue: snapshotJsonValue(requirement.defaultValue),
+      });
+  }
 }

@@ -1,10 +1,8 @@
 import { coerceCliArgvValue } from "./cli-coercion.js";
 import {
-  CLI_OPTION_ACTION_KIND,
-  type CliOptionAction,
   type CompiledCliEndpoint,
-  type CompiledCliOption,
   compileCliBinding,
+  projectCliParameters,
 } from "./cli-compiler.js";
 import {
   createCliHelpSurface,
@@ -12,262 +10,155 @@ import {
   validateCliHelpExamples,
 } from "./cli-help-projection.js";
 import {
-  CLI_ROUTER_RESULT_KIND,
-  type CliEndpointLocation,
+  CLI_ARG_KIND,
+  type CliArgBinding,
+  type CliCommandNode,
+  type CliCommandTree,
+  type CliEntryBinding,
   type CliGroupHelp,
   type CliHelpSurface,
-  type CliRouter,
-  type CliRouterResult,
+  type CliRegistrationCollection,
   type CliSegment,
-  type CliValueCoercion,
 } from "./cli-model.js";
-import { isCliEntryBinding, isCliSegment } from "./cli-schema.js";
-import {
-  type CLI_OPTION_KIND,
-  CLI_OPTION_VALUE_MODE,
-  CLI_POSITIONAL_PLAN_KIND,
-} from "./cli-values.js";
+import { compileInputPlan } from "./input-compiler.js";
 import type {
-  EntryTreeDefinition,
+  EntryChannelBinding,
   EntryTreeNode,
+  ErasedParameterDefinition,
   RawValueMap,
 } from "./model.js";
-import { decodeEntryInput } from "./runtime.js";
+import { ownedArray, ownedRecord } from "./owned.js";
+import {
+  type ContextFor,
+  type EndpointForChannel,
+  type EndpointsOfSource,
+  type EntryTreeSource,
+  type OutputFor,
+  packRegistrationCollection,
+} from "./registration.js";
 import {
   EntryTreeDefinitionError,
   findChannelBinding,
   formatTreePath,
+  isEntryTreeDefinition,
   validateEntryTreeStructure,
-  visitEntryTree,
 } from "./schema.js";
-import { CHANNEL, ENTRY_DECODE_RESULT_KIND } from "./values.js";
+import { isChannelPayload, PAYLOAD_KIND } from "./tree-internal.js";
+import { CHANNEL } from "./values.js";
 
-const CLI_ARGUMENT_SYNTAX = {
-  inlineValueSeparator: "=",
-  optionPrefix: "-",
-  positionalSeparator: "--",
-  repeatedValueSeparator: ",",
-} as const;
-
-const CLI_ARGUMENT_TOKEN_KIND = {
-  option: "option",
-  positionalSeparator: "positional_separator",
-  value: "value",
-} as const;
-
-type CliArgumentTokenKind =
-  (typeof CLI_ARGUMENT_TOKEN_KIND)[keyof typeof CLI_ARGUMENT_TOKEN_KIND];
-
-const CLI_PARSE_RESULT_KIND = {
-  parsed: "parsed",
-  raw: "raw",
-} as const;
-
-const CLI_TREE_VALIDATION_ISSUE = {
-  subcommandHintWithoutChildren:
-    "CLI subcommand hint requires at least one child command",
-} as const;
-
-const EMPTY_CLI_GROUP_HELP: CliGroupHelp = {
+const EMPTY_CLI_GROUP_HELP: CliGroupHelp = ownedRecord({
   subcommandHint: null,
-  examples: [],
-};
+  examples: ownedArray([]),
+});
 
-type CompiledCliNode = {
-  readonly path: readonly string[];
-  readonly segment: CliSegment;
-  readonly endpoint: CompiledCliEndpoint | null;
-  readonly childByToken: ReadonlyMap<string, CompiledCliNode>;
-  readonly help: CliHelpSurface;
-};
+type CliEndpointFor<Source extends EntryTreeSource> = EndpointForChannel<
+  EndpointsOfSource<Source>,
+  typeof CHANNEL.cli
+>;
 
-export function createCliRouter(tree: EntryTreeDefinition): CliRouter {
-  const root = compileCliTree(tree);
-  const endpointLocations = listCliEndpointLocations(root);
-  return {
-    help: root.help,
-    endpoints: endpointLocations.map((location) => location.endpoint),
-    endpointLocations,
-    resolve: (argv) => resolveCli(root, argv),
-  };
-}
-
-function listCliEndpointLocations(
-  root: CompiledCliNode,
-): readonly CliEndpointLocation[] {
-  const locations: CliEndpointLocation[] = [];
-  const visited = new Set<CompiledCliNode>();
-  const pending = [root];
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (!node || visited.has(node)) {
-      continue;
-    }
-    visited.add(node);
-    if (node.endpoint !== null) {
-      locations.push({
-        endpoint: node.endpoint.endpoint,
-        path: node.path.slice(1),
-        binding: node.endpoint.binding,
-      });
-    }
-    pending.push(...node.childByToken.values());
+export function collectCliCommands<const Source extends EntryTreeSource>(
+  source: Source,
+): CliCommandTree<
+  ContextFor<CliEndpointFor<Source>>,
+  OutputFor<CliEndpointFor<Source>>
+> {
+  const structuralIssues = validateEntryTreeStructure(source);
+  if (structuralIssues.length > 0) {
+    throw new EntryTreeDefinitionError(structuralIssues);
   }
-  return locations;
-}
-
-function compileCliTree(tree: EntryTreeDefinition): CompiledCliNode {
-  const issues = [...validateEntryTreeStructure(tree)];
-  const nodeRecords = new Map<
-    EntryTreeNode,
-    {
-      readonly path: readonly string[];
-      readonly segment: CliSegment;
-      readonly endpoint: CompiledCliEndpoint | null;
-    }
-  >();
-
-  const nodeQueue: {
-    readonly node: EntryTreeNode;
-    readonly parentPath: readonly string[];
-    readonly root: boolean;
-  }[] = [{ node: tree.root, parentPath: [], root: true }];
-  for (const current of nodeQueue) {
-    const segment = cliSegmentFor(
-      current.node,
-      current.parentPath,
-      current.root,
-      issues,
-    );
-    const path = current.root
-      ? [current.node.name]
-      : [...current.parentPath, segment.token];
-    nodeRecords.set(current.node, {
-      path,
-      segment,
-      endpoint: cliEndpointFor(current.node, path, issues),
-    });
-    nodeQueue.push(
-      ...current.node.children.map((node) => ({
-        node,
-        parentPath: path,
-        root: false,
-      })),
-    );
-  }
-
-  const publicNodes = new Map<EntryTreeNode, CompiledCliNode>();
-  const pending: EntryTreeNode[] = [];
-  visitEntryTree(tree, {
-    visitNode(node) {
-      pending.push(node);
-    },
-    visitEndpoint() {},
-  });
-  for (let index = pending.length - 1; index >= 0; index -= 1) {
-    const node = pending[index];
-    if (!node) {
-      continue;
-    }
-    const record = nodeRecords.get(node);
-    if (!record) {
-      continue;
-    }
-    const children = node.children.flatMap((child) => {
-      const compiled = publicNodes.get(child);
-      return compiled ? [compiled] : [];
-    });
-    if (record.segment.help.subcommandHint !== null && children.length === 0) {
-      issues.push(
-        `${formatTreePath(record.path)}: ${CLI_TREE_VALIDATION_ISSUE.subcommandHintWithoutChildren}`,
-      );
-    }
-    if (
-      record.endpoint === null &&
-      children.length === 0 &&
-      node !== tree.root
-    ) {
-      continue;
-    }
-    validateCliChildren(record.path, children, issues);
-    if (
-      record.endpoint !== null &&
-      record.endpoint.positionals.length > 0 &&
-      children.length > 0
-    ) {
-      issues.push(
-        `${formatTreePath(record.path)}: executable CLI node cannot have both positionals and children`,
-      );
-    }
-    const childByToken = new Map<string, CompiledCliNode>();
-    for (const child of children) {
-      childByToken.set(child.segment.token, child);
-    }
-    const compiledNode: CompiledCliNode = {
-      path: record.path,
-      segment: record.segment,
-      endpoint: record.endpoint,
-      childByToken,
-      help: createCliHelpSurface({
-        node,
-        segment: record.segment,
-        endpoint: record.endpoint,
-        childHelp: children.map((child) => child.help),
-        root: node === tree.root,
-      }),
-    };
-    publicNodes.set(node, compiledNode);
-  }
-
+  const issues: string[] = [];
+  const root = isEntryTreeDefinition(source)
+    ? compileTreeRoot(source.root, issues)
+    : compileVirtualRoot(source, issues);
   if (issues.length > 0) {
     throw new EntryTreeDefinitionError(issues);
   }
-  const root = publicNodes.get(tree.root);
-  if (!root) {
-    throw new EntryTreeDefinitionError([
-      "entry tree has no public CLI endpoint",
-    ]);
-  }
-  return root;
+  return ownedRecord({ root }) as CliCommandTree<
+    ContextFor<CliEndpointFor<Source>>,
+    OutputFor<CliEndpointFor<Source>>
+  >;
 }
 
-function cliSegmentFor(
+function compileTreeRoot(
+  root: EntryTreeNode,
+  issues: string[],
+): CliCommandNode<unknown, unknown> {
+  const segment = cliSegmentFor(root, [], issues);
+  return compileNode(root, segment, [], true, issues);
+}
+
+function compileVirtualRoot(
   node: EntryTreeNode,
+  issues: string[],
+): CliCommandNode<unknown, unknown> {
+  const segment = cliSegmentFor(node, [node.name], issues);
+  const child = compileNode(node, segment, [segment.token], false, issues);
+  const help = emptyVirtualRootHelp(child.help);
+  return ownedRecord({
+    token: "",
+    path: ownedArray([]),
+    description: "",
+    documentation: ownedRecord({
+      remarks: ownedArray([]),
+      relatedDocs: ownedArray([]),
+    }),
+    help,
+    commands: packRegistrationCollection<
+      CliRegistrationCollection<unknown, unknown>
+    >([]),
+    children: ownedArray([child]),
+  });
+}
+
+function compileNode(
+  node: EntryTreeNode,
+  segment: CliSegment,
   path: readonly string[],
   root: boolean,
   issues: string[],
-): CliSegment {
-  const override = node.segments.find((row) => row.channel === CHANNEL.cli);
-  let segment: CliSegment;
-  if (!override) {
-    segment = { token: node.name, help: EMPTY_CLI_GROUP_HELP };
-  } else if (!isCliSegment(override.segment)) {
-    issues.push(`${formatTreePath(path)}: invalid CLI segment override`);
-    segment = { token: node.name, help: EMPTY_CLI_GROUP_HELP };
-  } else {
-    segment = override.segment;
-  }
-  validateCliHelpExamples(segment.help.examples, formatTreePath(path), issues);
-  if (!root) {
-    validateCliCommandToken(segment.token, path, issues);
-  }
-  return segment;
-}
-
-function validateCliCommandToken(
-  token: string,
-  path: readonly string[],
-  issues: string[],
-): void {
-  if (token.length === 0) {
-    issues.push(`${formatTreePath(path)}: CLI segment token must not be empty`);
-    return;
-  }
-  if (classifyCliArgumentToken(token) !== CLI_ARGUMENT_TOKEN_KIND.value) {
+): CliCommandNode<unknown, unknown> {
+  const token = segment.token;
+  validateCliToken(token, path, issues);
+  const compiledEndpoint = cliEndpointFor(node, path, issues);
+  const children = node.children.map((child) => {
+    const childSegment = cliSegmentFor(child, [...path, child.name], issues);
+    return compileNode(
+      child,
+      childSegment,
+      [...path, childSegment.token],
+      false,
+      issues,
+    );
+  });
+  validateChildTokens(path, children, issues);
+  if (segment.help.subcommandHint !== null && children.length === 0) {
     issues.push(
-      `${formatTreePath(path)}: CLI segment token ${JSON.stringify(token)} is unreachable`,
+      `${formatTreePath(path)}: CLI subcommand hint requires children`,
     );
   }
+  const help = createCliHelpSurface({
+    node,
+    segment,
+    endpoint: compiledEndpoint,
+    childHelp: children.map((child) => child.help),
+    root,
+  });
+  const registrations =
+    compiledEndpoint === null
+      ? []
+      : [createCliRegistration(compiledEndpoint, path)];
+  return ownedRecord({
+    token,
+    path: ownedArray(path),
+    description: node.description,
+    documentation: node.documentation,
+    help,
+    commands:
+      packRegistrationCollection<CliRegistrationCollection<unknown, unknown>>(
+        registrations,
+      ),
+    children: ownedArray(children),
+  });
 }
 
 function cliEndpointFor(
@@ -275,373 +166,176 @@ function cliEndpointFor(
   path: readonly string[],
   issues: string[],
 ): CompiledCliEndpoint | null {
-  const endpoints = node.endpoints.flatMap((endpoint) =>
-    findChannelBinding(endpoint, CHANNEL.cli) ? [endpoint] : [],
-  );
+  const endpoints = [
+    ...new Set(
+      node.endpoints.filter((endpoint) =>
+        endpoint.channels.some((binding) => binding.channel === CHANNEL.cli),
+      ),
+    ),
+  ];
+  const location = formatTreePath(path);
   if (endpoints.length > 1) {
-    issues.push(`${formatTreePath(path)}: more than one public CLI endpoint`);
+    issues.push(`${location}: different CLI endpoints occupy the same path`);
   }
   const endpoint = endpoints[0];
-  if (!endpoint) {
+  if (endpoint === undefined) {
     return null;
   }
   const channelBinding = findChannelBinding(endpoint, CHANNEL.cli);
-  if (!channelBinding || !isCliEntryBinding(channelBinding.binding)) {
-    issues.push(`${formatTreePath(path)}: invalid CLI endpoint binding`);
+  if (channelBinding === null || !isCliChannelBinding(channelBinding)) {
+    issues.push(`${location}: invalid CLI endpoint binding`);
     return null;
   }
-  const location = `${formatTreePath(path)}#${endpoint.entry.name}`;
   const compiled = compileCliBinding(
     endpoint,
     channelBinding.binding,
-    location,
+    `${location}#${endpoint.entry.name}`,
     issues,
   );
   validateCliCommandHelp(compiled, location, issues);
   return compiled;
 }
 
-function validateCliChildren(
+function createCliRegistration(
+  compiled: CompiledCliEndpoint,
   path: readonly string[],
-  children: readonly CompiledCliNode[],
+) {
+  const input = compileInputPlan({
+    entry: compiled.endpoint.entry,
+    bindings: compiled.parameterBindings,
+  });
+  const rows = new Map(
+    compiled.binding.parameters.map((row) => [row.parameterName, row]),
+  );
+  const parseOptions = (raw: RawValueMap): unknown =>
+    input.parseCoerced(raw, (parameter, value) => {
+      const row = rows.get(parameter.name);
+      if (row === undefined) {
+        throw new Error(`Missing compiled CLI binding for ${parameter.name}`);
+      }
+      return coerceCliValue(parameter, row, value);
+    });
+  const channelBinding = findChannelBinding(compiled.endpoint, CHANNEL.cli);
+  if (channelBinding === null) {
+    throw new Error("Compiled CLI endpoint lost its binding");
+  }
+  return ownedRecord({
+    endpoint: compiled.endpoint,
+    entry: compiled.endpoint.entry,
+    binding: channelBinding,
+    path: ownedArray(path),
+    parameters: projectCliParameters(compiled),
+    input: ownedRecord({
+      schema: input.schema,
+      parse: input.parse,
+      project: input.project,
+      parseOptions,
+    }),
+    handler: compiled.endpoint.handler,
+  });
+}
+
+function coerceCliValue(
+  parameter: ErasedParameterDefinition,
+  row: CliArgBinding,
+  raw: unknown,
+): unknown {
+  const expanded =
+    row.kind === CLI_ARG_KIND.option && row.repeatable && row.coercion === null
+      ? expandCommaSeparated(raw)
+      : raw;
+  return coerceCliArgvValue(
+    parameter.name,
+    parameter.codec.shape,
+    expanded,
+    row.coercion,
+  );
+}
+
+function expandCommaSeparated(raw: unknown): unknown {
+  const values = Array.isArray(raw) ? raw : [raw];
+  return values.flatMap((value) =>
+    typeof value === "string" ? value.split(",") : [value],
+  );
+}
+
+function cliSegmentFor(
+  node: EntryTreeNode,
+  path: readonly string[],
+  issues: string[],
+): CliSegment {
+  const override = node.segments.find((row) => row.channel === CHANNEL.cli);
+  if (override === undefined) {
+    return ownedRecord({ token: node.name, help: EMPTY_CLI_GROUP_HELP });
+  }
+  if (!isCliSegment(override.segment)) {
+    issues.push(`${formatTreePath(path)}: invalid CLI segment override`);
+    return ownedRecord({ token: node.name, help: EMPTY_CLI_GROUP_HELP });
+  }
+  validateCliHelpExamples(
+    override.segment.help.examples,
+    formatTreePath(path),
+    issues,
+  );
+  return override.segment;
+}
+
+function validateCliToken(
+  token: string,
+  path: readonly string[],
   issues: string[],
 ): void {
-  const tokens = new Map<string, string>();
+  if (token.length === 0 || /\s/u.test(token)) {
+    issues.push(
+      `${formatTreePath(path)}: CLI token must be non-empty and contain no whitespace`,
+    );
+  }
+}
+
+function validateChildTokens(
+  path: readonly string[],
+  children: readonly CliCommandNode<unknown, unknown>[],
+  issues: string[],
+): void {
+  const owners = new Map<string, string>();
   for (const child of children) {
-    const token = child.segment.token;
-    const owner = tokens.get(token);
+    const owner = owners.get(child.token);
     if (owner !== undefined) {
       issues.push(
-        `${formatTreePath(path)}: CLI sibling token collision ${JSON.stringify(token)} between ${owner} and ${child.help.name}`,
+        `${formatTreePath(path)}: CLI child token ${JSON.stringify(child.token)} collides between ${owner} and ${child.description}`,
       );
     } else {
-      tokens.set(token, child.help.name);
+      owners.set(child.token, child.description);
     }
   }
 }
 
-function resolveCli(
-  root: CompiledCliNode,
-  argv: readonly string[],
-): CliRouterResult {
-  let node = root;
-  let index = 0;
-  while (index < argv.length) {
-    const token = argv[index];
-    if (token === undefined) {
-      break;
-    }
-    if (classifyCliArgumentToken(token) !== CLI_ARGUMENT_TOKEN_KIND.value) {
-      break;
-    }
-    const child = node.childByToken.get(token);
-    if (!child) {
-      break;
-    }
-    node = child;
-    index += 1;
-  }
-
-  const unmatchedToken = argv[index];
-  if (
-    node.endpoint !== null &&
-    node.childByToken.size > 0 &&
-    unmatchedToken !== undefined &&
-    classifyCliArgumentToken(unmatchedToken) === CLI_ARGUMENT_TOKEN_KIND.value
-  ) {
-    return {
-      kind: CLI_ROUTER_RESULT_KIND.unknownCommand,
-      path: node.path,
-      token: unmatchedToken,
-    };
-  }
-  if (node.endpoint === null) {
-    return unmatchedToken === undefined
-      ? { kind: CLI_ROUTER_RESULT_KIND.incompleteCommand, path: node.path }
-      : {
-          kind: CLI_ROUTER_RESULT_KIND.unknownCommand,
-          path: node.path,
-          token: unmatchedToken,
-        };
-  }
-  const compiledEndpoint = node.endpoint;
-  const rawResult = parseCliArguments(compiledEndpoint, argv.slice(index));
-  switch (rawResult.kind) {
-    case CLI_ROUTER_RESULT_KIND.invalidInput:
-    case CLI_ROUTER_RESULT_KIND.invalidParameter:
-      return { ...rawResult, path: node.path };
-    case CLI_PARSE_RESULT_KIND.raw:
-      break;
-  }
-  const endpoint = compiledEndpoint.endpoint;
-  const decoded = decodeEntryInput({
-    entry: endpoint.entry,
-    parameterNames: endpoint.entry.parameters.map(
-      (parameter) => parameter.name,
-    ),
-    raw: rawResult.raw,
-    coerce: (parameter, rawValue) =>
-      coerceCliArgvValue(
-        parameter.codec.shape,
-        rawValue,
-        cliCoercionFor(compiledEndpoint, parameter.name),
-      ),
+function emptyVirtualRootHelp(child: CliHelpSurface): CliHelpSurface {
+  return ownedRecord({
+    name: "",
+    token: null,
+    description: "",
+    optionGroups: ownedArray([]),
+    positionals: ownedArray([]),
+    children: ownedArray([child]),
+    remarks: ownedArray([]),
+    relatedDocs: ownedArray([]),
+    usages: ownedArray(["<command>"]),
+    examples: ownedArray([]),
+    subcommandHint: null,
   });
-  switch (decoded.kind) {
-    case ENTRY_DECODE_RESULT_KIND.resolved:
-      return {
-        kind: CLI_ROUTER_RESULT_KIND.resolved,
-        path: node.path,
-        endpoint,
-        projection: decoded.projection,
-      };
-    case ENTRY_DECODE_RESULT_KIND.invalidInput:
-      return {
-        kind: CLI_ROUTER_RESULT_KIND.invalidInput,
-        path: node.path,
-        issues: decoded.issues,
-      };
-    case ENTRY_DECODE_RESULT_KIND.invalidParameter:
-      return {
-        kind: CLI_ROUTER_RESULT_KIND.invalidParameter,
-        path: node.path,
-        parameterName: decoded.parameterName,
-        issues: decoded.issues,
-      };
-    case ENTRY_DECODE_RESULT_KIND.internalError:
-      return {
-        kind: CLI_ROUTER_RESULT_KIND.internalError,
-        path: node.path,
-        error: decoded.error,
-      };
-  }
 }
 
-function cliCoercionFor(
-  endpoint: CompiledCliEndpoint,
-  parameterName: string,
-): CliValueCoercion | null {
-  return (
-    [...endpoint.options, ...endpoint.positionals].find(
-      (binding) => binding.parameter.name === parameterName,
-    )?.coercion ?? null
-  );
+function isCliEntryBinding(value: unknown): value is CliEntryBinding {
+  return isChannelPayload(PAYLOAD_KIND.cliBinding, value);
 }
 
-type InvalidCliResult =
-  | {
-      readonly kind: typeof CLI_ROUTER_RESULT_KIND.invalidInput;
-      readonly issues: readonly string[];
-    }
-  | {
-      readonly kind: typeof CLI_ROUTER_RESULT_KIND.invalidParameter;
-      readonly parameterName: string;
-      readonly issues: readonly string[];
-    };
-
-type RawCliResult =
-  | {
-      readonly kind: typeof CLI_PARSE_RESULT_KIND.raw;
-      readonly raw: RawValueMap;
-    }
-  | InvalidCliResult;
-
-function parseCliArguments(
-  endpoint: CompiledCliEndpoint,
-  argv: readonly string[],
-): RawCliResult {
-  const raw = new Map<string, unknown>();
-  const positionalValues: string[] = [];
-  let positionalOnly = false;
-  for (let index = 0; index < argv.length; index += 1) {
-    const token = argv[index];
-    if (token === undefined) {
-      continue;
-    }
-    if (!positionalOnly) {
-      switch (classifyCliArgumentToken(token)) {
-        case CLI_ARGUMENT_TOKEN_KIND.positionalSeparator:
-          positionalOnly = true;
-          continue;
-        case CLI_ARGUMENT_TOKEN_KIND.option: {
-          const parsed = parseCliOption({ endpoint, argv, index, raw });
-          switch (parsed.kind) {
-            case CLI_ROUTER_RESULT_KIND.invalidInput:
-            case CLI_ROUTER_RESULT_KIND.invalidParameter:
-              return parsed;
-            case CLI_PARSE_RESULT_KIND.parsed:
-              if (parsed.consumedNext) {
-                index += 1;
-              }
-          }
-          continue;
-        }
-        case CLI_ARGUMENT_TOKEN_KIND.value:
-          break;
-      }
-    }
-    positionalValues.push(token);
-  }
-  return bindCliPositionals(endpoint, positionalValues, raw);
+function isCliChannelBinding(
+  binding: EntryChannelBinding,
+): binding is EntryChannelBinding<typeof CHANNEL.cli, CliEntryBinding> {
+  return binding.channel === CHANNEL.cli && isCliEntryBinding(binding.binding);
 }
 
-function parseCliOption(input: {
-  readonly endpoint: CompiledCliEndpoint;
-  readonly argv: readonly string[];
-  readonly index: number;
-  readonly raw: Map<string, unknown>;
-}):
-  | {
-      readonly kind: typeof CLI_PARSE_RESULT_KIND.parsed;
-      readonly consumedNext: boolean;
-    }
-  | InvalidCliResult {
-  const token = input.argv[input.index] ?? "";
-  const [flag, inlineValue] = splitOptionToken(token);
-  const action = input.endpoint.optionByToken.get(flag);
-  if (!action) {
-    return invalidCliInput(`Unknown option ${flag}`);
-  }
-  if (action.kind === CLI_OPTION_ACTION_KIND.setBoolean) {
-    return setCliBooleanValue(input.raw, action, flag, inlineValue);
-  }
-  const option = action.option;
-  const value = inlineValue ?? input.argv[input.index + 1];
-  if (value === undefined) {
-    return invalidCliParameter(
-      option.parameter.name,
-      `${flag} requires a value`,
-    );
-  }
-  storeOptionValue(input.raw, option, value);
-  return {
-    kind: CLI_PARSE_RESULT_KIND.parsed,
-    consumedNext: inlineValue === undefined,
-  };
-}
-
-function setCliBooleanValue(
-  raw: Map<string, unknown>,
-  action: Extract<
-    CliOptionAction,
-    { readonly kind: typeof CLI_OPTION_ACTION_KIND.setBoolean }
-  >,
-  flag: string,
-  inlineValue: string | undefined,
-):
-  | {
-      readonly kind: typeof CLI_PARSE_RESULT_KIND.parsed;
-      readonly consumedNext: false;
-    }
-  | InvalidCliResult {
-  if (inlineValue !== undefined) {
-    return invalidCliParameter(
-      action.parameterName,
-      `${flag} does not take a value`,
-    );
-  }
-  raw.set(action.parameterName, action.value);
-  return { kind: CLI_PARSE_RESULT_KIND.parsed, consumedNext: false };
-}
-
-function bindCliPositionals(
-  endpoint: CompiledCliEndpoint,
-  positionalValues: readonly string[],
-  raw: Map<string, unknown>,
-): RawCliResult {
-  let positionalIndex = 0;
-  for (const positional of endpoint.positionals) {
-    if (positional.kind === CLI_POSITIONAL_PLAN_KIND.rest) {
-      const values = positionalValues.slice(positionalIndex);
-      if (values.length > 0) {
-        raw.set(positional.parameter.name, values);
-      }
-      positionalIndex = positionalValues.length;
-    } else {
-      const value = positionalValues[positionalIndex];
-      if (value !== undefined) {
-        raw.set(positional.parameter.name, value);
-        positionalIndex += 1;
-      }
-    }
-  }
-  if (positionalIndex < positionalValues.length) {
-    return invalidCliInput(
-      `Unexpected argument ${positionalValues[positionalIndex]}`,
-    );
-  }
-  return { kind: CLI_PARSE_RESULT_KIND.raw, raw: Object.fromEntries(raw) };
-}
-
-function storeOptionValue(
-  raw: Map<string, unknown>,
-  option: Extract<
-    CompiledCliOption,
-    { readonly kind: typeof CLI_OPTION_KIND.value }
-  >,
-  value: string,
-): void {
-  switch (option.valueMode) {
-    case CLI_OPTION_VALUE_MODE.replace:
-      raw.set(option.parameter.name, value);
-      return;
-    case CLI_OPTION_VALUE_MODE.repeat:
-      appendOptionValues(raw, option.parameter.name, [value]);
-      return;
-    case CLI_OPTION_VALUE_MODE.commaOrRepeat:
-      appendOptionValues(
-        raw,
-        option.parameter.name,
-        value.split(CLI_ARGUMENT_SYNTAX.repeatedValueSeparator),
-      );
-      return;
-  }
-}
-
-function appendOptionValues(
-  raw: Map<string, unknown>,
-  parameterName: string,
-  values: readonly string[],
-): void {
-  const current = raw.get(parameterName);
-  raw.set(
-    parameterName,
-    Array.isArray(current) ? [...current, ...values] : values,
-  );
-}
-
-function splitOptionToken(
-  token: string,
-): readonly [string, string | undefined] {
-  const equalsIndex = token.indexOf(CLI_ARGUMENT_SYNTAX.inlineValueSeparator);
-  return equalsIndex < 0
-    ? [token, undefined]
-    : [token.slice(0, equalsIndex), token.slice(equalsIndex + 1)];
-}
-
-function classifyCliArgumentToken(token: string): CliArgumentTokenKind {
-  if (token === CLI_ARGUMENT_SYNTAX.positionalSeparator) {
-    return CLI_ARGUMENT_TOKEN_KIND.positionalSeparator;
-  }
-  return token.startsWith(CLI_ARGUMENT_SYNTAX.optionPrefix)
-    ? CLI_ARGUMENT_TOKEN_KIND.option
-    : CLI_ARGUMENT_TOKEN_KIND.value;
-}
-
-function invalidCliInput(issue: string): InvalidCliResult {
-  return {
-    kind: CLI_ROUTER_RESULT_KIND.invalidInput,
-    issues: [issue],
-  };
-}
-
-function invalidCliParameter(
-  parameterName: string,
-  issue: string,
-): InvalidCliResult {
-  return {
-    kind: CLI_ROUTER_RESULT_KIND.invalidParameter,
-    parameterName,
-    issues: [issue],
-  };
+function isCliSegment(value: unknown): value is CliSegment {
+  return isChannelPayload(PAYLOAD_KIND.cliSegment, value);
 }

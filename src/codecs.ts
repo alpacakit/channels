@@ -1,29 +1,36 @@
-import { createSchemaRuntimeCodec, readonlyArraySchema } from "@alpacakit/core";
+import type { JsonValue } from "@alpacakit/core";
 import { z } from "zod";
-import type { ValueCodec, ValueForShape, ValueShape } from "./model.js";
+import type { ValueCodec, ValueShapeFor } from "./model.js";
+import { ownedArray, ownedRecord, snapshotValueShape } from "./owned.js";
 import { VALUE_SHAPE_KIND } from "./values.js";
 
-function defineValueCodec<const Shape extends ValueShape>(input: {
-  readonly schema: z.ZodType<ValueForShape<Shape>>;
-  readonly shape: Shape;
-}): ValueCodec<ValueForShape<Shape>> {
-  const codec = createSchemaRuntimeCodec(input.schema);
-  return {
-    schema: input.schema,
-    shape: input.shape,
-    decode: codec.decode,
-    encode: codec.encode,
-  } as unknown as ValueCodec<ValueForShape<Shape>>;
+type JsonInput<Raw> = Raw extends JsonValue ? Raw : JsonValue;
+
+function defineValueCodec<Raw, Value extends JsonValue>(input: {
+  readonly schema: z.ZodType<Value, Raw>;
+  readonly shape: ValueShapeFor<JsonInput<Raw>>;
+}): ValueCodec<Raw, Value> {
+  return makeValueCodec(input.schema, input.shape);
 }
 
-function stringCodec(): ValueCodec<string> {
+function makeValueCodec<Raw, Value extends JsonValue>(
+  schema: z.ZodType<Value>,
+  shape: ValueShapeFor<JsonInput<Raw>>,
+): ValueCodec<Raw, Value> {
+  return ownedRecord({
+    schema,
+    shape: snapshotValueShape(shape),
+  }) as unknown as ValueCodec<Raw, Value>;
+}
+
+function stringCodec(): ValueCodec<string, string> {
   return defineValueCodec({
     schema: z.string(),
     shape: { kind: VALUE_SHAPE_KIND.string },
   });
 }
 
-function booleanCodec(): ValueCodec<boolean> {
+function booleanCodec(): ValueCodec<boolean, boolean> {
   return defineValueCodec({
     schema: z.boolean(),
     shape: { kind: VALUE_SHAPE_KIND.boolean },
@@ -32,53 +39,51 @@ function booleanCodec(): ValueCodec<boolean> {
 
 function positiveIntegerCodec(
   input: { readonly max: number | null } = { max: null },
-): ValueCodec<number> {
+): ValueCodec<number, number> {
   const base = z.number().int().positive();
   return defineValueCodec({
-    schema: (input.max === null
-      ? base
-      : base.max(input.max)) as z.ZodType<number>,
+    schema: input.max === null ? base : base.max(input.max),
     shape: { kind: VALUE_SHAPE_KIND.positiveInteger },
   });
 }
 
 function stringEnumCodec<const Values extends readonly [string, ...string[]]>(
   values: Values,
-): ValueCodec<Values[number]> {
-  return defineValueCodec({
-    schema: z.enum(values) as z.ZodType<Values[number]>,
-    shape: {
-      kind: VALUE_SHAPE_KIND.stringEnum,
-      values,
-    },
-  });
+): ValueCodec<Values[number], Values[number]> {
+  const snapshot = ownedArray(values);
+  return makeValueCodec<Values[number], Values[number]>(z.enum(snapshot), {
+    kind: VALUE_SHAPE_KIND.stringEnum,
+    values: snapshot,
+  } as unknown as ValueShapeFor<JsonInput<Values[number]>>);
 }
 
 function stringEnumListCodec<
   const Values extends readonly [string, ...string[]],
->(values: Values): ValueCodec<readonly Values[number][]> {
+>(
+  values: Values,
+): ValueCodec<readonly Values[number][], readonly Values[number][]> {
   const element = stringEnumCodec(values);
-  return defineValueCodec({
-    schema: readonlyArraySchema(element.schema),
-    shape: {
+  return makeValueCodec<readonly Values[number][], readonly Values[number][]>(
+    z.array(element.schema).readonly(),
+    {
       kind: VALUE_SHAPE_KIND.array,
       element: {
         kind: VALUE_SHAPE_KIND.stringEnum,
         values,
       },
-    },
-  });
+    } as unknown as ValueShapeFor<JsonInput<readonly Values[number][]>>,
+  );
 }
 
-function stringListCodec(): ValueCodec<readonly string[]> {
+function stringListCodec(): ValueCodec<readonly string[], readonly string[]> {
   const element = stringCodec();
-  return defineValueCodec({
-    schema: readonlyArraySchema(element.schema),
-    shape: {
+  return makeValueCodec<readonly string[], readonly string[]>(
+    z.array(element.schema).readonly(),
+    {
       kind: VALUE_SHAPE_KIND.array,
       element: element.shape,
     },
-  });
+  );
 }
 
 export const codecs = {
@@ -89,4 +94,4 @@ export const codecs = {
   positiveInteger: positiveIntegerCodec,
   stringEnum: stringEnumCodec,
   stringEnumList: stringEnumListCodec,
-};
+} as const;

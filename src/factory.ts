@@ -1,16 +1,16 @@
-import type { JsonValue } from "@alpacakit/core";
 import type {
+  Callable,
   ChannelSegmentOverride,
   CommandDocumentation,
   CommandDocumentationInput,
+  EndpointsOfNode,
   EntryChannelBinding,
-  EntryDefinition,
-  EntryDefinitionWithOutput,
   EntryTreeDefinition,
   EntryTreeEndpoint,
   EntryTreeNode,
-  ParameterSet,
+  ErasedEntryDefinition,
 } from "./model.js";
+import { ownedArray, ownedRecord } from "./owned.js";
 import { EntryTreeDefinitionError } from "./schema.js";
 import type { Channel } from "./values.js";
 
@@ -18,36 +18,45 @@ const ENTRY_TREE_MERGE_ISSUE = {
   conflictingDocumentation: "conflicting node documentation",
 } as const;
 
-const EMPTY_COMMAND_DOCUMENTATION: CommandDocumentation = {
-  remarks: [],
-  relatedDocs: [],
-};
+const EMPTY_COMMAND_DOCUMENTATION: CommandDocumentation = ownedRecord({
+  remarks: ownedArray([]),
+  relatedDocs: ownedArray([]),
+});
 
-export function defineEntryTree(root: EntryTreeNode): EntryTreeDefinition {
-  return { root } as EntryTreeDefinition;
+export function defineEntryTree<const Node extends EntryTreeNode>(
+  root: Node,
+): EntryTreeDefinition<EndpointsOfNode<Node>> {
+  return ownedRecord({ root }) as unknown as EntryTreeDefinition<
+    EndpointsOfNode<Node>
+  >;
 }
 
-export function defineEntryNode(input: {
+export function defineEntryNode<
+  const Endpoints extends readonly EntryTreeEndpoint[] = readonly [],
+  const Children extends readonly EntryTreeNode[] = readonly [],
+>(input: {
   readonly name: string;
   readonly description: string;
   readonly documentation?: CommandDocumentationInput;
   readonly segments?: readonly ChannelSegmentOverride[];
-  readonly endpoints?: readonly EntryTreeEndpoint[];
-  readonly children?: readonly EntryTreeNode[];
-}): EntryTreeNode {
-  return {
+  readonly endpoints?: Endpoints;
+  readonly children?: Children;
+}): EntryTreeNode<Endpoints[number] | EndpointsOfNode<Children[number]>> {
+  return ownedRecord({
     name: input.name,
     description: input.description,
     documentation: normalizeCommandDocumentation(input.documentation),
-    segments: input.segments ?? [],
-    endpoints: input.endpoints ?? [],
-    children: input.children ?? [],
-  } as EntryTreeNode;
+    segments: ownedArray(input.segments ?? []),
+    endpoints: ownedArray(input.endpoints ?? []),
+    children: ownedArray(input.children ?? []),
+  }) as unknown as EntryTreeNode<
+    Endpoints[number] | EndpointsOfNode<Children[number]>
+  >;
 }
 
-export function mergeEntryTreeNodes(
-  nodes: readonly EntryTreeNode[],
-): readonly EntryTreeNode[] {
+export function mergeEntryTreeNodes<
+  const Nodes extends readonly EntryTreeNode[],
+>(nodes: Nodes): readonly EntryTreeNode<EndpointsOfNode<Nodes[number]>>[] {
   const rootFrames = groupNodes(nodes).map((group) =>
     createMergeFrame(group, ""),
   );
@@ -121,15 +130,17 @@ export function mergeEntryTreeNodes(
     );
   }
 
-  return rootFrames.map((frame) => {
-    const node = merged.get(frame);
-    if (!node) {
-      throw new EntryTreeDefinitionError([
-        `${frame.path}: node was not merged`,
-      ]);
-    }
-    return node;
-  });
+  return ownedArray(
+    rootFrames.map((frame) => {
+      const node = merged.get(frame);
+      if (!node) {
+        throw new EntryTreeDefinitionError([
+          `${frame.path}: node was not merged`,
+        ]);
+      }
+      return node;
+    }),
+  ) as unknown as readonly EntryTreeNode<EndpointsOfNode<Nodes[number]>>[];
 }
 
 type MergeFrame = {
@@ -163,10 +174,10 @@ function normalizeCommandDocumentation(
   if (input === undefined) {
     return EMPTY_COMMAND_DOCUMENTATION;
   }
-  return {
-    remarks: input.remarks ?? [],
-    relatedDocs: input.relatedDocs ?? [],
-  };
+  return ownedRecord({
+    remarks: ownedArray(input.remarks ?? []),
+    relatedDocs: ownedArray(input.relatedDocs ?? []),
+  });
 }
 
 function mergeCommandDocumentation(
@@ -289,34 +300,53 @@ function mergeSegments(
   return [...byChannel.values()];
 }
 
+/**
+ * Bundles an Entry definition object with channel bindings. This factory does
+ * not register or execute an application handler.
+ */
+type CheckedHandlerDefinition<Arguments extends readonly unknown[]> =
+  number extends Arguments["length"]
+    ? { readonly handler: never }
+    : Exclude<Arguments["length"], 0 | 1 | 2> extends never
+      ? unknown
+      : { readonly handler: never };
+
+type HandlerArgumentsFor<Projection, Arguments extends readonly unknown[]> = {
+  readonly [Index in keyof Arguments]: Index extends "0"
+    ? Projection
+    : Arguments[Index];
+};
+
+type RegisteredHandler<Arguments extends readonly unknown[], Result> = (
+  ...args: Arguments
+) => Result;
+
 export function defineEntryEndpoint<
-  const Name extends string,
-  const Parameters extends ParameterSet,
-  Projection,
-  Output extends JsonValue,
+  const Entry extends ErasedEntryDefinition,
+  const Handler extends Callable,
+  const Arguments extends readonly unknown[],
+  Result,
+  const Channels extends readonly EntryChannelBinding[],
 >(
-  entry: EntryDefinitionWithOutput<Name, Parameters, Projection, Output>,
-  ...channels: readonly EntryChannelBinding<
-    Channel,
-    NoInfer<Parameters[number]["name"]>
-  >[]
-): EntryTreeEndpoint<
-  EntryDefinitionWithOutput<Name, Parameters, Projection, Output>
->;
-export function defineEntryEndpoint<
-  const Name extends string,
-  const Parameters extends ParameterSet,
-  Projection,
->(
-  entry: EntryDefinition<Name, Parameters, Projection>,
-  ...channels: readonly EntryChannelBinding<
-    Channel,
-    NoInfer<Parameters[number]["name"]>
-  >[]
-): EntryTreeEndpoint<EntryDefinition<Name, Parameters, Projection>>;
-export function defineEntryEndpoint(
-  entry: EntryTreeEndpoint["entry"],
-  ...channels: readonly EntryChannelBinding<Channel, string>[]
-): EntryTreeEndpoint {
-  return { entry, channels } as unknown as EntryTreeEndpoint;
+  entry: Entry,
+  definition: {
+    readonly handler: Handler &
+      RegisteredHandler<Arguments, Result> &
+      RegisteredHandler<
+        HandlerArgumentsFor<ReturnType<Entry["project"]>, Arguments>,
+        Result
+      >;
+    readonly channels: Channels;
+  } & CheckedHandlerDefinition<Arguments>,
+): EntryTreeEndpoint<Entry, Handler, Channels> {
+  if (definition.handler.length > 2) {
+    throw new EntryTreeDefinitionError([
+      `${entry.name}: handler must accept zero to two parameters`,
+    ]);
+  }
+  return ownedRecord({
+    entry,
+    handler: definition.handler,
+    channels: ownedArray(definition.channels),
+  }) as unknown as EntryTreeEndpoint<Entry, Handler, Channels>;
 }

@@ -7,11 +7,13 @@ import { PARAMETER_REQUIREMENT_KIND } from "./values.js";
 
 export const PARAMETER_BINDING_ISSUE_KIND = {
   duplicate: "duplicate",
+  duplicateExclusion: "duplicate_exclusion",
+  nonexistentExclusion: "nonexistent_exclusion",
   nonexistent: "nonexistent",
   requiredUnreachable: "required_unreachable",
 } as const;
 
-export type ParameterBindingRow = {
+type ParameterBindingRow = {
   readonly parameterName: string;
 };
 
@@ -23,6 +25,14 @@ export type CompiledParameterBinding<
 };
 
 export type ParameterBindingIssue =
+  | {
+      readonly kind: typeof PARAMETER_BINDING_ISSUE_KIND.duplicateExclusion;
+      readonly parameterName: string;
+    }
+  | {
+      readonly kind: typeof PARAMETER_BINDING_ISSUE_KIND.nonexistentExclusion;
+      readonly parameterName: string;
+    }
   | {
       readonly kind: typeof PARAMETER_BINDING_ISSUE_KIND.duplicate;
       readonly parameterName: string;
@@ -36,7 +46,7 @@ export type ParameterBindingIssue =
       readonly parameterName: string;
     };
 
-export type ParameterBindingCompilation<Row extends ParameterBindingRow> = {
+type ParameterBindingCompilation<Row extends ParameterBindingRow> = {
   readonly bindings: readonly CompiledParameterBinding<Row>[];
   readonly issues: readonly ParameterBindingIssue[];
 };
@@ -78,4 +88,34 @@ export function compileParameterBindings<Row extends ParameterBindingRow>(
     }
   }
   return { bindings, issues };
+}
+
+export function compileParameterExclusions(
+  entry: ErasedEntryDefinition,
+  exclusions: readonly string[],
+): ParameterBindingCompilation<ParameterBindingRow> {
+  const excluded = new Set<string>();
+  const issues: ParameterBindingIssue[] = [];
+  for (const parameterName of exclusions) {
+    if (excluded.has(parameterName)) {
+      issues.push({
+        kind: PARAMETER_BINDING_ISSUE_KIND.duplicateExclusion,
+        parameterName,
+      });
+    }
+    excluded.add(parameterName);
+    if (findParameter(entry.parameters, parameterName) === null) {
+      issues.push({
+        kind: PARAMETER_BINDING_ISSUE_KIND.nonexistentExclusion,
+        parameterName,
+      });
+    }
+  }
+  const exposed = compileParameterBindings(
+    entry,
+    entry.parameters
+      .filter((parameter) => !excluded.has(parameter.name))
+      .map((parameter) => ({ parameterName: parameter.name })),
+  );
+  return { bindings: exposed.bindings, issues: [...issues, ...exposed.issues] };
 }

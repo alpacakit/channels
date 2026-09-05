@@ -7,6 +7,7 @@ import type { z } from "zod";
 import type {
   EntryDefinition,
   EntryDefinitionWithOutput,
+  ErasedEntryDefinition,
   OutputContract,
   ParameterSet,
 } from "./model.js";
@@ -14,8 +15,7 @@ import type {
 export function createOutputContract<Value extends JsonValue>(
   schema: z.ZodType<Value>,
 ): OutputContract<Value> {
-  const { decode } = createSchemaRuntimeCodec(schema);
-  return { schema, decode };
+  return Object.freeze({ schema });
 }
 
 export class EntryOutputContractError extends Error {
@@ -51,9 +51,19 @@ export function verifyEntryOutput<
   entry: EntryDefinitionWithOutput<Name, Parameters, Projection, Output>,
   value: NoInfer<Output>,
 ): Output {
-  const decoded = requireEntryOutput(entry).decode(value);
+  return verifyEntryOutputValue(entry, value) as Output;
+}
+
+function verifyEntryOutputValue(
+  entry: ErasedEntryDefinition,
+  value: JsonValue,
+): JsonValue {
+  if (entry.output === null) {
+    throw new Error(`Entry ${entry.name} does not declare an output contract`);
+  }
+  const decoded = createSchemaRuntimeCodec(entry.output.schema).decode(value);
   if (decoded.kind === CODEC_DECODE_RESULT_KIND.invalid) {
     throw new EntryOutputContractError(entry.name, decoded.issues);
   }
-  return decoded.value;
+  return decoded.value as JsonValue;
 }

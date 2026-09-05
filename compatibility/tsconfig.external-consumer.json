@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noUncheckedSideEffectImports": true,
+    "skipLibCheck": false,
+    "outDir": "dist"
+  },
+  "include": [
+    "external-consumer.ts",
+    "external-consumer-types.ts",
+    "packed-book-search.ts",
+    "packed-greeting.ts",
+    "removed-api-negative.ts"
+  ]
+}

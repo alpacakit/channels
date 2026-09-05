@@ -21,6 +21,7 @@ import {
 } from "./cli-values.js";
 import { describeParameterRequirement } from "./introspection.js";
 import type { EntryTreeNode } from "./model.js";
+import { ownedArray, ownedRecord } from "./owned.js";
 import { PARAMETER_REQUIREMENT_KIND } from "./values.js";
 
 const CLI_HELP_USAGE_SYNTAX = {
@@ -56,13 +57,13 @@ type CliEndpointHelpProjection = {
   readonly usage: CliHelpUsage;
 };
 
-const GROUP_HELP_PROJECTION = {
-  examples: [],
-  options: [],
-  optionSections: [],
-  positionals: [],
-  usage: { kind: CLI_HELP_USAGE_KIND.derived },
-} as const satisfies CliEndpointHelpProjection;
+const GROUP_HELP_PROJECTION = ownedRecord({
+  examples: ownedArray([]),
+  options: ownedArray([]),
+  optionSections: ownedArray([]),
+  positionals: ownedArray([]),
+  usage: ownedRecord({ kind: CLI_HELP_USAGE_KIND.derived }),
+} as const satisfies CliEndpointHelpProjection);
 
 export function createCliHelpSurface(input: {
   readonly node: EntryTreeNode;
@@ -73,22 +74,25 @@ export function createCliHelpSurface(input: {
 }): CliHelpSurface {
   const endpoint = projectCliEndpointHelp(input.endpoint);
   const hasChildren = input.childHelp.length > 0;
-  return {
+  return ownedRecord({
     name: input.node.name,
     token: input.root ? null : input.segment.token,
     description: input.node.description,
-    remarks: input.node.documentation.remarks,
-    relatedDocs: input.node.documentation.relatedDocs,
+    remarks: ownedArray(input.node.documentation.remarks),
+    relatedDocs: ownedArray(input.node.documentation.relatedDocs),
     optionGroups: projectCliHelpOptionGroups(
       endpoint.options,
       endpoint.optionSections,
     ),
-    positionals: endpoint.positionals,
+    positionals: ownedArray(endpoint.positionals),
     usages: resolveCliUsages(endpoint, hasChildren),
-    examples: [...input.segment.help.examples, ...endpoint.examples],
+    examples: ownedArray([
+      ...input.segment.help.examples,
+      ...endpoint.examples,
+    ]),
     subcommandHint: input.segment.help.subcommandHint,
-    children: input.childHelp,
-  };
+    children: ownedArray(input.childHelp),
+  });
 }
 
 function projectCliHelpOptionGroups(
@@ -101,26 +105,32 @@ function projectCliHelpOptionGroups(
   const sectionedParameterNames = new Set(
     sections.flatMap((section) => section.parameterNames),
   );
-  const groups: CliHelpOptionGroup[] = sections.map((section) => ({
-    heading: section.heading,
-    description: section.description,
-    // Section references are validated before the completed router is exposed.
-    options: section.parameterNames.map(
-      (parameterName) =>
-        optionByParameterName.get(parameterName) as CliHelpOption,
-    ),
-  }));
+  const groups: CliHelpOptionGroup[] = sections.map((section) =>
+    ownedRecord({
+      heading: section.heading,
+      description: section.description,
+      // Section references are validated before the completed router is exposed.
+      options: ownedArray(
+        section.parameterNames.map(
+          (parameterName) =>
+            optionByParameterName.get(parameterName) as CliHelpOption,
+        ),
+      ),
+    }),
+  );
   const unsectionedOptions = options.filter(
     (option) => !sectionedParameterNames.has(option.parameterName),
   );
   if (unsectionedOptions.length > 0) {
-    groups.push({
-      heading: null,
-      description: null,
-      options: unsectionedOptions,
-    });
+    groups.push(
+      ownedRecord({
+        heading: null,
+        description: null,
+        options: ownedArray(unsectionedOptions),
+      }),
+    );
   }
-  return groups;
+  return ownedArray(groups);
 }
 
 export function validateCliCommandHelp(
@@ -128,7 +138,8 @@ export function validateCliCommandHelp(
   location: string,
   issues: string[],
 ): void {
-  const { help, options } = endpoint;
+  const { help } = endpoint.binding;
+  const { options } = endpoint;
   validateCliHelpExamples(help.examples, location, issues);
   const optionNames = new Set(options.map((option) => option.parameter.name));
   const sectionedNames = new Set<string>();
@@ -181,13 +192,13 @@ function projectCliEndpointHelp(
   if (endpoint === null) {
     return GROUP_HELP_PROJECTION;
   }
-  return {
-    examples: endpoint.help.examples,
-    options: endpoint.options.map(cliHelpOptionFor),
-    optionSections: endpoint.help.optionSections,
-    positionals: endpoint.positionals.map(cliHelpPositionalFor),
-    usage: endpoint.help.usage,
-  };
+  return ownedRecord({
+    examples: endpoint.binding.help.examples,
+    options: ownedArray(endpoint.options.map(cliHelpOptionFor)),
+    optionSections: endpoint.binding.help.optionSections,
+    positionals: ownedArray(endpoint.positionals.map(cliHelpPositionalFor)),
+    usage: endpoint.binding.help.usage,
+  });
 }
 
 function resolveCliUsages(
@@ -198,7 +209,7 @@ function resolveCliUsages(
     case CLI_HELP_USAGE_KIND.authored:
       return endpoint.usage.values;
     case CLI_HELP_USAGE_KIND.derived:
-      return [deriveCliUsage(endpoint, hasChildren)];
+      return ownedArray([deriveCliUsage(endpoint, hasChildren)]);
   }
 }
 
@@ -236,27 +247,27 @@ function cliHelpOptionFor(option: CompiledCliOption): CliHelpOption {
     requirement: describeParameterRequirement(option.parameter.requirement),
   };
   return option.kind === CLI_OPTION_KIND.booleanFlag
-    ? {
+    ? ownedRecord({
         ...base,
         kind: CLI_OPTION_KIND.booleanFlag,
-        negativeFlags: option.negativeFlags,
-      }
-    : {
+        negativeFlags: ownedArray(option.negativeFlags),
+      })
+    : ownedRecord({
         ...base,
         kind: CLI_OPTION_KIND.value,
         valueName: option.valueName,
         valueMode: option.valueMode,
-      };
+      });
 }
 
 function cliHelpPositionalFor(
   positional: CompiledCliPositional,
 ): CliHelpPositional {
-  return {
+  return ownedRecord({
     parameterName: positional.parameter.name,
     valueName: positional.valueName,
     description: positional.parameter.description,
     requirement: describeParameterRequirement(positional.parameter.requirement),
     variadic: positional.kind === CLI_POSITIONAL_PLAN_KIND.rest,
-  };
+  });
 }

@@ -1,9 +1,12 @@
-import type {
-  CodecDecodeResult,
-  JsonValue,
-  RuntimeCodec,
-} from "@alpacakit/core";
+import type { JsonValue } from "@alpacakit/core";
 import type { z } from "zod";
+import { EntryTreeDefinitionError } from "./definition-error.js";
+import {
+  ownedArray,
+  ownedRecord,
+  snapshotJsonValue,
+  snapshotValueShape,
+} from "./owned.js";
 import {
   type Channel,
   PARAMETER_REQUIREMENT_KIND,
@@ -12,10 +15,10 @@ import {
 
 declare const EntryTreeDefinitionBrand: unique symbol;
 declare const EntryTreeNodeBrand: unique symbol;
+declare const EntryTreeNodeEndpoints: unique symbol;
 declare const EntryTreeEndpointBrand: unique symbol;
 declare const ChannelSegmentOverrideBrand: unique symbol;
 declare const EntryChannelBindingBrand: unique symbol;
-declare const EntryChannelBindingParameterNames: unique symbol;
 
 export type StringValueShape = {
   readonly kind: typeof VALUE_SHAPE_KIND.string;
@@ -61,44 +64,34 @@ type ScalarValueShapeFor<Value extends JsonValue> = [Value] extends [boolean]
       ? StringValueShape | StringEnumValueShape<readonly Value[]>
       : never;
 
-export type ValueShapeFor<Value extends JsonValue> = [Value] extends [
+export type ValueShapeFor<Raw extends JsonValue> = [Raw] extends [
   ScalarJsonValue,
 ]
-  ? ScalarValueShapeFor<Value>
-  : [Value] extends [readonly (infer Element extends JsonValue)[]]
-    ? ArrayValueShape<ScalarValueShapeFor<Element>>
-    : JsonValue extends Value
-      ? ValueShape
-      : never;
+  ? ScalarValueShapeFor<Raw>
+  : [Raw] extends [readonly (infer Element extends JsonValue)[]]
+    ? [Element] extends [ScalarJsonValue]
+      ? ArrayValueShape<ScalarValueShapeFor<Element>>
+      : StringValueShape
+    : ValueShape;
 
-export type ValueForShape<Shape extends ValueShape> =
-  Shape extends BooleanValueShape
-    ? boolean
-    : Shape extends PositiveIntegerValueShape
-      ? number
-      : Shape extends StringEnumValueShape<infer Values>
-        ? Values[number]
-        : Shape extends StringValueShape
-          ? string
-          : Shape extends ArrayValueShape<infer Element>
-            ? readonly ValueForShape<Element>[]
-            : never;
+/** A schema input (`Raw`) and its decoded output (`Value`) are distinct. */
+type JsonInput<Raw> = Raw extends JsonValue ? Raw : JsonValue;
 
-export interface ValueCodec<Value extends JsonValue>
-  extends RuntimeCodec<Value> {
-  readonly schema: z.ZodType<Value>;
-  readonly shape: ValueShapeFor<Value>;
+export interface ValueCodec<
+  Raw = JsonValue,
+  Value extends JsonValue = JsonValue,
+> {
+  readonly schema: z.ZodType<Value, Raw>;
+  readonly shape: ValueShapeFor<JsonInput<Raw>>;
 }
 
 export type ErasedValueCodec = {
   readonly schema: z.ZodType;
   readonly shape: ValueShape;
-  decode(input: unknown): CodecDecodeResult<JsonValue>;
 };
 
 export interface OutputContract<Value extends JsonValue> {
   readonly schema: z.ZodType<Value>;
-  decode(input: unknown): CodecDecodeResult<Value>;
 }
 
 export type RequiredParameterRequirement = {
@@ -109,23 +102,26 @@ export type OptionalParameterRequirement = {
   readonly kind: typeof PARAMETER_REQUIREMENT_KIND.optional;
 };
 
-export type OptionalWithDefaultParameterRequirement<Value extends JsonValue> = {
+export type OptionalWithDefaultParameterRequirement<Raw extends JsonValue> = {
   readonly kind: typeof PARAMETER_REQUIREMENT_KIND.optionalWithDefault;
-  readonly defaultValue: Value;
+  readonly defaultValue: Raw;
 };
 
-export type ParameterRequirement<Value extends JsonValue> =
+export type ParameterRequirement<Raw extends JsonValue> =
   | RequiredParameterRequirement
   | OptionalParameterRequirement
-  | OptionalWithDefaultParameterRequirement<Value>;
+  | OptionalWithDefaultParameterRequirement<Raw>;
 
 export type ParameterDefinition<
   Name extends string,
+  Raw,
   Value extends JsonValue,
-  Requirement extends ParameterRequirement<Value> = ParameterRequirement<Value>,
+  Requirement extends ParameterRequirement<
+    JsonInput<Raw>
+  > = ParameterRequirement<JsonInput<Raw>>,
 > = {
   readonly name: Name;
-  readonly codec: ValueCodec<Value>;
+  readonly codec: ValueCodec<Raw, Value>;
   readonly requirement: Requirement;
   readonly description: string;
 };
@@ -144,7 +140,9 @@ export type RawValueMap = {
 };
 
 type ParameterValue<Parameter extends ErasedParameterDefinition> =
-  Parameter extends ParameterDefinition<string, infer Value> ? Value : never;
+  Parameter["codec"] extends ValueCodec<infer _Raw, infer Value>
+    ? Value
+    : never;
 
 type ParameterMaterialization<Parameter extends ParameterSet[number]> =
   Parameter["requirement"]["kind"] extends
@@ -187,9 +185,9 @@ export type EntryDefinitionInput<
 };
 
 export type EntryDefinition<
-  Name extends string,
-  Parameters extends ParameterSet,
-  Projection,
+  Name extends string = string,
+  Parameters extends ParameterSet = ParameterSet,
+  Projection = unknown,
   Output extends JsonValue = JsonValue,
 > =
   | (EntryDefinitionBase<Name, Parameters, Projection> & {
@@ -201,7 +199,6 @@ export type EntryDefinition<
 
 export type ErasedOutputContract = {
   readonly schema: z.ZodType;
-  decode(input: unknown): CodecDecodeResult<JsonValue>;
 };
 
 export type ErasedEntryDefinition =
@@ -218,9 +215,36 @@ export type ErasedEntryDefinition =
       readonly output: ErasedOutputContract;
     };
 
-export type EntryTreeDefinition = {
-  readonly root: EntryTreeNode;
-  readonly [EntryTreeDefinitionBrand]: true;
+export type Callable = (...args: never[]) => unknown;
+
+export type EntryChannelBinding<
+  ChannelName extends Channel = Channel,
+  Binding = unknown,
+> = {
+  readonly channel: ChannelName;
+  readonly binding: Binding;
+  readonly [EntryChannelBindingBrand]: true;
+};
+
+export type ChannelSegmentOverride<
+  ChannelName extends Channel = Channel,
+  Segment = unknown,
+> = {
+  readonly channel: ChannelName;
+  readonly segment: Segment;
+  readonly [ChannelSegmentOverrideBrand]: true;
+};
+
+export type EntryTreeEndpoint<
+  Entry extends ErasedEntryDefinition = ErasedEntryDefinition,
+  Handler extends Callable = Callable,
+  Channels extends
+    readonly EntryChannelBinding[] = readonly EntryChannelBinding[],
+> = {
+  readonly entry: Entry;
+  readonly handler: Handler;
+  readonly channels: Channels;
+  readonly [EntryTreeEndpointBrand]: true;
 };
 
 export type CommandDocumentation = {
@@ -233,39 +257,31 @@ export type CommandDocumentationInput = {
   readonly relatedDocs?: readonly string[];
 };
 
-export type EntryTreeNode = {
+export type EntryTreeNode<
+  Endpoints extends EntryTreeEndpoint = EntryTreeEndpoint,
+> = {
   readonly name: string;
   readonly description: string;
   readonly documentation: CommandDocumentation;
   readonly segments: readonly ChannelSegmentOverride[];
   readonly endpoints: readonly EntryTreeEndpoint[];
   readonly children: readonly EntryTreeNode[];
+  readonly [EntryTreeNodeEndpoints]: Endpoints;
   readonly [EntryTreeNodeBrand]: true;
 };
 
-export type EntryTreeEndpoint<
-  Entry extends ErasedEntryDefinition = ErasedEntryDefinition,
+export type EntryTreeDefinition<
+  Endpoints extends EntryTreeEndpoint = EntryTreeEndpoint,
 > = {
-  readonly entry: Entry;
-  readonly channels: readonly EntryChannelBinding[];
-  readonly [EntryTreeEndpointBrand]: true;
+  readonly root: EntryTreeNode<Endpoints>;
+  readonly [EntryTreeDefinitionBrand]: true;
 };
 
-export type ChannelSegmentOverride = {
-  readonly channel: Channel;
-  readonly segment: unknown;
-  readonly [ChannelSegmentOverrideBrand]: true;
-};
+export type EndpointsOfNode<Node extends EntryTreeNode> =
+  Node extends EntryTreeNode<infer Endpoints> ? Endpoints : never;
 
-export type EntryChannelBinding<
-  ChannelName extends Channel = Channel,
-  ParameterName extends string = string,
-> = {
-  readonly channel: ChannelName;
-  readonly binding: unknown;
-  readonly [EntryChannelBindingBrand]: true;
-  readonly [EntryChannelBindingParameterNames]: ParameterName;
-};
+export type EndpointsOfTree<Tree extends EntryTreeDefinition> =
+  Tree extends EntryTreeDefinition<infer Endpoints> ? Endpoints : never;
 
 export type EntryDefinitionWithOutput<
   Name extends string,
@@ -288,12 +304,13 @@ export type EntryDefinitionInputWithOutput<
 
 export function defineParameter<
   const Name extends string,
+  Raw,
   Value extends JsonValue,
-  const Requirement extends ParameterRequirement<Value>,
+  const Requirement extends ParameterRequirement<JsonInput<Raw>>,
 >(
-  parameter: ParameterDefinition<Name, Value, Requirement>,
-): ParameterDefinition<Name, Value, Requirement> {
-  return parameter;
+  parameter: ParameterDefinition<Name, Raw, Value, Requirement>,
+): ParameterDefinition<Name, Raw, Value, Requirement> {
+  return snapshotParameter(parameter);
 }
 
 export function defineEntry<
@@ -320,32 +337,90 @@ export function defineEntry<
 >(
   entry: EntryDefinitionInput<Name, Parameters, Projection, Output>,
 ): EntryDefinition<Name, Parameters, Projection, Output> {
-  if (entry.output === undefined) {
-    return { ...entry, output: null };
+  const parameters = ownedArray(
+    entry.parameters.map((parameter) => snapshotParameter(parameter)),
+  ) as unknown as Parameters;
+  const names = new Set<string>();
+  const issues: string[] = [];
+  for (const parameter of parameters) {
+    if (names.has(parameter.name)) {
+      issues.push(
+        `${entry.name}: duplicate parameter name ${JSON.stringify(parameter.name)}`,
+      );
+    }
+    names.add(parameter.name);
   }
-  return { ...entry, output: entry.output };
+  if (issues.length > 0) {
+    throw new EntryTreeDefinitionError(issues);
+  }
+  const output =
+    entry.output === undefined
+      ? null
+      : ownedRecord({ schema: entry.output.schema });
+  return ownedRecord({ ...entry, parameters, output }) as EntryDefinition<
+    Name,
+    Parameters,
+    Projection,
+    Output
+  >;
 }
 
 export function required(): RequiredParameterRequirement {
-  return { kind: PARAMETER_REQUIREMENT_KIND.required };
+  return ownedRecord({ kind: PARAMETER_REQUIREMENT_KIND.required });
 }
 
 export function optional<
-  _Value extends JsonValue,
+  _Raw extends JsonValue,
 >(): OptionalParameterRequirement;
-export function optional<Value extends JsonValue>(input: {
-  readonly default: Value;
-}): OptionalWithDefaultParameterRequirement<Value>;
-export function optional<Value extends JsonValue>(input?: {
-  readonly default: Value;
+export function optional<const Raw extends JsonValue>(input: {
+  readonly default: Raw;
+}): OptionalWithDefaultParameterRequirement<Raw>;
+export function optional<Raw extends JsonValue>(input?: {
+  readonly default: Raw;
 }):
   | OptionalParameterRequirement
-  | OptionalWithDefaultParameterRequirement<Value> {
+  | OptionalWithDefaultParameterRequirement<Raw> {
   if (input === undefined) {
-    return { kind: PARAMETER_REQUIREMENT_KIND.optional };
+    return ownedRecord({ kind: PARAMETER_REQUIREMENT_KIND.optional });
   }
-  return {
+  return ownedRecord({
     kind: PARAMETER_REQUIREMENT_KIND.optionalWithDefault,
-    defaultValue: input.default,
-  };
+    defaultValue: snapshotJsonValue(input.default),
+  });
+}
+
+function snapshotParameter<
+  const Name extends string,
+  Raw,
+  Value extends JsonValue,
+  const Requirement extends ParameterRequirement<JsonInput<Raw>>,
+>(
+  parameter: ParameterDefinition<Name, Raw, Value, Requirement>,
+): ParameterDefinition<Name, Raw, Value, Requirement>;
+function snapshotParameter(
+  parameter: ErasedParameterDefinition,
+): ErasedParameterDefinition;
+function snapshotParameter(
+  parameter: ErasedParameterDefinition,
+): ErasedParameterDefinition {
+  if (parameter.name.length === 0) {
+    throw new EntryTreeDefinitionError(["parameter name must not be empty"]);
+  }
+  const requirement =
+    parameter.requirement.kind ===
+    PARAMETER_REQUIREMENT_KIND.optionalWithDefault
+      ? ownedRecord({
+          kind: parameter.requirement.kind,
+          defaultValue: snapshotJsonValue(parameter.requirement.defaultValue),
+        })
+      : ownedRecord({ kind: parameter.requirement.kind });
+  return ownedRecord({
+    name: parameter.name,
+    codec: ownedRecord({
+      schema: parameter.codec.schema,
+      shape: snapshotValueShape(parameter.codec.shape),
+    }),
+    requirement,
+    description: parameter.description,
+  });
 }

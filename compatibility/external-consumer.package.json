@@ -1,0 +1,13 @@
+{
+  "name": "channels-external-adapters-consumer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "@types/node": "22.20.1",
+    "commander": "14.0.3",
+    "hono": "4.13.7",
+    "typescript": "5.9.3",
+    "zod": "4.5.4"
+  }
+}

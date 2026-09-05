@@ -11,6 +11,7 @@ import {
   type CliLongOptionFlag,
   type CliOptionFlag,
   type CliOptionValueMode,
+  type CliParameterView,
   type CliValueCoercion,
 } from "./cli-model.js";
 import {
@@ -19,13 +20,10 @@ import {
   CLI_OPTION_VALUE_MODE,
   CLI_POSITIONAL_PLAN_KIND,
 } from "./cli-values.js";
+import { describeParameterRequirement } from "./introspection.js";
 import type { EntryTreeEndpoint, ErasedParameterDefinition } from "./model.js";
+import { ownedArray, ownedRecord } from "./owned.js";
 import { PARAMETER_REQUIREMENT_KIND, VALUE_SHAPE_KIND } from "./values.js";
-
-export const CLI_OPTION_ACTION_KIND = {
-  setBoolean: "set_boolean",
-  readValue: "read_value",
-} as const;
 
 const CLI_COMPILER_SYNTAX = {
   assignmentSeparator: "=",
@@ -61,27 +59,12 @@ export type CompiledCliPositional = {
   readonly coercion: CliValueCoercion | null;
 };
 
-export type CliOptionAction =
-  | {
-      readonly kind: typeof CLI_OPTION_ACTION_KIND.setBoolean;
-      readonly parameterName: string;
-      readonly value: boolean;
-    }
-  | {
-      readonly kind: typeof CLI_OPTION_ACTION_KIND.readValue;
-      readonly option: Extract<
-        CompiledCliOption,
-        { readonly kind: typeof CLI_OPTION_KIND.value }
-      >;
-    };
-
 export type CompiledCliEndpoint = {
   readonly endpoint: EntryTreeEndpoint;
   readonly binding: CliEntryBinding;
-  readonly help: CliEntryBinding["help"];
+  readonly parameterBindings: readonly CompiledParameterBinding<CliArgBinding>[];
   readonly options: readonly CompiledCliOption[];
   readonly positionals: readonly CompiledCliPositional[];
-  readonly optionByToken: ReadonlyMap<string, CliOptionAction>;
 };
 
 export function compileCliBinding(
@@ -130,14 +113,102 @@ export function compileCliBinding(
       );
     }
   }
+  validateUniqueOptionFlags(options, location, issues);
   return {
     endpoint,
     binding,
-    help: binding.help,
+    parameterBindings: compiledParameters.bindings,
     options,
     positionals,
-    optionByToken: createCliOptionActionIndex(options, location, issues),
   };
+}
+
+function validateUniqueOptionFlags(
+  options: readonly CompiledCliOption[],
+  location: string,
+  issues: string[],
+): void {
+  const flags = new Set<string>();
+  for (const option of options) {
+    const optionFlags =
+      option.kind === CLI_OPTION_KIND.booleanFlag
+        ? [...option.flags, ...option.negativeFlags]
+        : option.flags;
+    for (const flag of optionFlags) {
+      if (flags.has(flag)) {
+        issues.push(`${location}: duplicate CLI option flag ${flag}`);
+      }
+      flags.add(flag);
+    }
+  }
+}
+
+export function projectCliParameters(
+  endpoint: CompiledCliEndpoint,
+): readonly CliParameterView[] {
+  const options = new Map(
+    endpoint.options.map((option) => [option.parameter.name, option]),
+  );
+  const positionals = new Map(
+    endpoint.positionals.map((positional) => [
+      positional.parameter.name,
+      positional,
+    ]),
+  );
+  return ownedArray(
+    endpoint.binding.parameters.flatMap((row): readonly CliParameterView[] => {
+      if (row.kind === CLI_ARG_KIND.option) {
+        const option = options.get(row.parameterName);
+        return option === undefined ? [] : [projectCliOption(option)];
+      }
+      const positional = positionals.get(row.parameterName);
+      return positional === undefined
+        ? []
+        : [
+            ownedRecord({
+              kind: CLI_ARG_KIND.positional,
+              parameterName: positional.parameter.name,
+              description: positional.parameter.description,
+              requirement: describeParameterRequirement(
+                positional.parameter.requirement,
+              ),
+              shape: positional.parameter.codec.shape,
+              coercion: positional.coercion,
+              valueName: positional.valueName,
+              variadic: positional.kind === CLI_POSITIONAL_PLAN_KIND.rest,
+            }),
+          ];
+    }),
+  );
+}
+
+function projectCliOption(option: CompiledCliOption): CliParameterView {
+  const base = {
+    parameterName: option.parameter.name,
+    description: option.parameter.description,
+    requirement: describeParameterRequirement(option.parameter.requirement),
+    shape: option.parameter.codec.shape,
+    coercion: option.coercion,
+  };
+  return option.kind === CLI_OPTION_KIND.booleanFlag
+    ? ownedRecord({
+        ...base,
+        kind: CLI_ARG_KIND.option,
+        optionKind: option.kind,
+        flags: option.flags,
+        negativeFlags: option.negativeFlags,
+        valueName: null,
+        valueMode: null,
+      })
+    : ownedRecord({
+        ...base,
+        kind: CLI_ARG_KIND.option,
+        optionKind: option.kind,
+        flags: option.flags,
+        negativeFlags: ownedArray([]),
+        valueName: option.valueName,
+        valueMode: option.valueMode,
+      });
 }
 
 function compileCliOption(
@@ -325,69 +396,6 @@ function compileCliPositional(
   };
 }
 
-function createCliOptionActionIndex(
-  options: readonly CompiledCliOption[],
-  location: string,
-  issues: string[],
-): ReadonlyMap<string, CliOptionAction> {
-  const actions = new Map<string, CliOptionAction>();
-  for (const option of options) {
-    if (option.kind === CLI_OPTION_KIND.booleanFlag) {
-      for (const token of option.flags) {
-        registerCliOptionAction(
-          actions,
-          token,
-          {
-            kind: CLI_OPTION_ACTION_KIND.setBoolean,
-            parameterName: option.parameter.name,
-            value: true,
-          },
-          location,
-          issues,
-        );
-      }
-      for (const token of option.negativeFlags) {
-        registerCliOptionAction(
-          actions,
-          token,
-          {
-            kind: CLI_OPTION_ACTION_KIND.setBoolean,
-            parameterName: option.parameter.name,
-            value: false,
-          },
-          location,
-          issues,
-        );
-      }
-      continue;
-    }
-    for (const token of option.flags) {
-      registerCliOptionAction(
-        actions,
-        token,
-        { kind: CLI_OPTION_ACTION_KIND.readValue, option },
-        location,
-        issues,
-      );
-    }
-  }
-  return actions;
-}
-
-function registerCliOptionAction(
-  actions: Map<string, CliOptionAction>,
-  token: string,
-  action: CliOptionAction,
-  location: string,
-  issues: string[],
-): void {
-  if (actions.has(token)) {
-    issues.push(`${location}: duplicate CLI option flag ${token}`);
-    return;
-  }
-  actions.set(token, action);
-}
-
 function formatCliParameterBindingIssue(
   location: string,
   issue: ParameterBindingIssue,
@@ -395,6 +403,10 @@ function formatCliParameterBindingIssue(
   switch (issue.kind) {
     case PARAMETER_BINDING_ISSUE_KIND.duplicate:
       return `${location}: duplicate binding for parameter ${issue.parameterName}`;
+    case PARAMETER_BINDING_ISSUE_KIND.duplicateExclusion:
+      return `${location}: duplicate exclusion for parameter ${issue.parameterName}`;
+    case PARAMETER_BINDING_ISSUE_KIND.nonexistentExclusion:
+      return `${location}: exclusion names nonexistent parameter ${issue.parameterName}`;
     case PARAMETER_BINDING_ISSUE_KIND.nonexistent:
       return `${location}: binding names nonexistent parameter ${issue.parameterName}`;
     case PARAMETER_BINDING_ISSUE_KIND.requiredUnreachable:

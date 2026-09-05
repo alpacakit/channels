@@ -2,8 +2,10 @@ import type { ParameterDescription } from "./introspection.js";
 import type {
   ChannelSegmentOverride,
   EntryChannelBinding,
-  EntryTreeEndpoint,
+  RawValueMap,
 } from "./model.js";
+import { ownedArray, ownedRecord } from "./owned.js";
+import type { InputPlan, Registration } from "./registration.js";
 import {
   createChannelSegmentOverride,
   createEntryChannelBinding,
@@ -17,20 +19,14 @@ export const HTTP_METHOD = {
   post: "POST",
 } as const;
 
-export type HttpMethod = (typeof HTTP_METHOD)[keyof typeof HTTP_METHOD];
+export type HttpMethod = string;
 
-export const HTTP_ROUTER_RESULT_KIND = {
-  resolved: "resolved",
-  notFound: "not_found",
-  methodNotAllowed: "method_not_allowed",
-  invalidInput: "invalid_input",
-  invalidParameter: "invalid_parameter",
-  internalError: "internal_error",
-} as const;
-
-export type HttpEntryBinding = {
-  readonly method: HttpMethod;
-  readonly exclude: readonly string[];
+export type HttpEntryBinding<
+  Method extends string = string,
+  Excluded extends readonly string[] = readonly string[],
+> = {
+  readonly method: Method;
+  readonly exclude: Excluded;
 };
 
 export type HttpSegment = {
@@ -38,95 +34,61 @@ export type HttpSegment = {
 };
 
 export function bindHttpEntry<
+  const Method extends string = typeof HTTP_METHOD.post,
   const Excluded extends readonly string[] = readonly [],
 >(input?: {
-  readonly method?: HttpMethod;
+  readonly method?: Method;
   readonly exclude?: Excluded;
-}): EntryChannelBinding<typeof CHANNEL.http, Excluded[number]> {
-  const payload = {
+}): EntryChannelBinding<
+  typeof CHANNEL.http,
+  HttpEntryBinding<Method, Excluded>
+> {
+  const payload = ownedRecord({
     method: input?.method ?? HTTP_METHOD.post,
-    exclude: input?.exclude ?? [],
-  } satisfies HttpEntryBinding;
+    exclude: ownedArray(input?.exclude ?? []),
+  }) as HttpEntryBinding<Method, Excluded>;
   registerChannelPayload(PAYLOAD_KIND.httpBinding, payload);
   return createEntryChannelBinding(CHANNEL.http, payload);
 }
 
 export function overrideHttpSegment(segment: {
   readonly segment: string;
-}): ChannelSegmentOverride {
-  const payload = { segment: segment.segment } satisfies HttpSegment;
+}): ChannelSegmentOverride<typeof CHANNEL.http, HttpSegment> {
+  const payload = ownedRecord({ segment: segment.segment });
   registerChannelPayload(PAYLOAD_KIND.httpSegment, payload);
   return createChannelSegmentOverride(CHANNEL.http, payload);
 }
 
-export type HttpRouterResult =
-  | {
-      readonly kind: typeof HTTP_ROUTER_RESULT_KIND.resolved;
-      readonly path: string;
-      readonly endpoint: EntryTreeEndpoint;
-      readonly projection: unknown;
-      readonly request: Request;
-    }
-  | {
-      readonly kind: typeof HTTP_ROUTER_RESULT_KIND.notFound;
-      readonly path: string;
-    }
-  | {
-      readonly kind: typeof HTTP_ROUTER_RESULT_KIND.methodNotAllowed;
-      readonly path: string;
-      readonly allowed: readonly HttpMethod[];
-    }
-  | {
-      readonly kind: typeof HTTP_ROUTER_RESULT_KIND.invalidInput;
-      readonly path: string;
-      readonly issues: readonly string[];
-    }
-  | {
-      readonly kind: typeof HTTP_ROUTER_RESULT_KIND.invalidParameter;
-      readonly path: string;
-      readonly parameterName: string;
-      readonly issues: readonly string[];
-    }
-  | {
-      readonly kind: typeof HTTP_ROUTER_RESULT_KIND.internalError;
-      readonly path: string;
-      readonly error: unknown;
-    };
-
-export type HttpResolvedEndpointResult<Endpoint extends EntryTreeEndpoint> =
-  Omit<
-    Extract<
-      HttpRouterResult,
-      { readonly kind: typeof HTTP_ROUTER_RESULT_KIND.resolved }
-    >,
-    "endpoint" | "projection"
-  > & {
-    readonly endpoint: Endpoint;
-    readonly projection: ReturnType<Endpoint["entry"]["project"]>;
-  };
-
-export function isHttpResolvedEndpoint<
-  const Endpoint extends EntryTreeEndpoint,
->(
-  result: HttpRouterResult,
-  endpoint: Endpoint,
-): result is HttpResolvedEndpointResult<Endpoint> {
-  return (
-    result.kind === HTTP_ROUTER_RESULT_KIND.resolved &&
-    result.endpoint === endpoint
-  );
-}
-
-export type HttpRoute = {
-  readonly method: HttpMethod;
-  readonly path: string;
-  readonly segments: readonly string[];
-  readonly endpoint: EntryTreeEndpoint;
-  readonly parameters: readonly ParameterDescription[];
+export type HttpQueryMap = {
+  readonly [key: string]: string | readonly string[];
 };
 
-export interface HttpRouter {
-  readonly routes: readonly HttpRoute[];
-  readonly endpoints: readonly EntryTreeEndpoint[];
-  resolve(request: Request): Promise<HttpRouterResult>;
+export type HttpInputPlan<Values extends RawValueMap, Input> = InputPlan<
+  Values,
+  Input
+> & {
+  readonly parseQuery: (raw: HttpQueryMap) => Input;
+};
+
+export type HttpRegistration<
+  Values extends RawValueMap,
+  Input,
+  Context,
+  Output,
+> = Omit<Registration<Values, Input, Context, Output>, "binding" | "input"> & {
+  readonly binding: EntryChannelBinding<typeof CHANNEL.http, HttpEntryBinding>;
+  readonly method: string;
+  readonly path: string;
+  readonly segments: readonly string[];
+  readonly parameters: readonly ParameterDescription[];
+  readonly input: HttpInputPlan<Values, Input>;
+};
+
+export interface HttpRouteCollection<Context, Output> {
+  readonly length: number;
+  readonly forEach: (
+    visit: <Values extends RawValueMap, Input>(
+      item: HttpRegistration<Values, Input, Context, Output>,
+    ) => void,
+  ) => void;
 }

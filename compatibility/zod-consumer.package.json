@@ -1,0 +1,9 @@
+{
+  "name": "channels-zod-compatibility-consumer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@types/node": "22.20.1",
+    "typescript": "5.9.3"
+  }
+}
