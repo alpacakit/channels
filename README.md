@@ -146,83 +146,63 @@ Use `project`, not `parse`, after SDK validation so defaults and transforms are
 not applied twice. The SDK's callback also lets the application use MCP request
 metadata or cancellation when constructing the shared handler's context.
 
-### CLI with Commander
+### CLI with your own parser
 
-Install Commander in the consuming application. Walk the collected tree to
-create groups and commands once, then call the shared handler from each action.
-This adapter covers the value-taking options used by the example:
+The collected view is a tree of nodes, so a CLI host walks it once to learn
+which paths are executable and what each command accepts. Argv parsing stays in
+the application. Use the input plan to convert and validate supplied values,
+then call the shared handler in your host callback:
 
 ```ts
-import { Command, Option } from "commander";
+const view = collectCliCommands(AppTree);
+const commands = new Map<
+  string,
+  (supplied: Record<string, unknown>) => Promise<string>
+>();
 
-export function createCliProgram(
-  writeMessage: (message: string) => void = console.log,
-) {
-  const view = collectCliCommands(AppTree);
-  const program = new Command()
-    .name(view.root.token)
-    .exitOverride()
-    .enablePositionalOptions();
-
-  function register(node: typeof view.root, command: Command): void {
-    command.description(node.description);
-    node.commands.forEach((spec) => {
-      // This example tree only uses value-taking options.
-      const mappings = spec.parameters.map((parameter) => {
-        if (parameter.kind !== "option" || parameter.optionKind !== "value") {
-          throw new Error("This example only handles value-taking options");
-        }
-        const option = new Option(
-          `${parameter.flags.join(", ")} <${parameter.valueName}>`,
-          parameter.description,
-        );
-        command.addOption(option);
-        return {
-          name: parameter.parameterName,
-          attribute: option.attributeName(),
-        };
-      });
-      command.action(async () => {
-        const raw = Object.fromEntries(
-          mappings
-            .filter(
-              (mapping) =>
-                command.getOptionValueSource(mapping.attribute) === "cli",
-            )
-            .map((mapping) => [
-              mapping.name,
-              command.getOptionValue(mapping.attribute),
-            ]),
-        );
-        const input = spec.input.parseOptions(raw);
-        const result = await spec.handler(input, { greeting: "Hello" });
-        writeMessage(result.message);
-      });
+function register(node: typeof view.root): void {
+  node.commands.forEach((spec) => {
+    // `spec.parameters` describes the flags and positionals your parser must
+    // accept for this command.
+    commands.set(spec.path.join(" "), async (supplied) => {
+      const input = spec.input.parseOptions(supplied);
+      // Build the handler context here, where its dependencies are available.
+      const result = await spec.handler(input, { greeting: "Hello" });
+      return result.message;
     });
-    for (const child of node.children) {
-      register(child, command.command(child.token));
-    }
-  }
-
-  register(view.root, program);
-  return program;
+  });
+  node.children.forEach(register);
 }
 
-const program = createCliProgram();
-// In your CLI entrypoint:
-// await program.parseAsync(process.argv.slice(2), { from: "user" });
+register(view.root);
+
+// Your parser selects the path and supplies only the options the user typed.
+const greetCommand = commands.get("greet");
+if (!greetCommand) throw new Error("Missing greet command");
+console.log(await greetCommand({ name: "Ada" })); // Hello, Ada!
 ```
 
-Running `demo greet --name Ada` prints `Hello, Ada!`. Omitting `--name` uses
-`world`. The recursive registration retains group-only nodes and executable
-parents with children. If your tree uses positionals or flags, register those
-from `spec.parameters` using your parser's corresponding APIs. Existing CLI
-parsers can use the same views; Commander is only this example's host.
+This demonstrates the handoff after parsing `demo greet --name Ada`; it does
+not parse argv. Supplying no `name` key applies the authored default `world`.
+Pass `parseOptions` only the canonical parameter names the user explicitly
+supplied — defaults inserted by your parser would override the authored ones.
+The walk visits commands in nested groups and executable parents with children;
+the tree also retains group-only nodes for your host's help and registration.
 
-The complete [greeting example](./examples/greeting.ts), including process error
-handling, is shipped with the package and compiled and invoked from its packed
-artifact. The [book-search example](./examples/book-search.ts) also demonstrates
-a typed output contract and domain outcome union.
+`collectCliCommands` accepts a Node or a Tree. A collection requires a context
+satisfying all its handlers. Collect modules with incompatible contexts
+separately, and create each module's context inside its invocation callback.
+The host owns output formatting and resource cleanup.
+
+The complete [greeting example](./examples/greeting.ts) turns the same view into
+a Commander program, including flag registration, `getOptionValueSource`
+filtering so only user-supplied options reach `parseOptions`, and process error
+handling. Its adapter handles value-taking options only, which is all the
+greeting tree uses; register boolean flags and positionals from
+`spec.parameters` with your parser's corresponding APIs. That file is shipped
+with the package and is compiled and invoked from its packed artifact. The
+[book-search example](./examples/book-search.ts) also demonstrates a typed
+output contract and domain outcome union.
 
 ## Input and failure handling
 
