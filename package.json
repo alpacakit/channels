@@ -1,6 +1,6 @@
 {
   "name": "@alpacakit/channels",
-  "version": "0.2.0-beta.2",
+  "version": "0.2.0-beta.3",
   "description": "Neutral multi-channel entry definitions with CLI, MCP, and HTTP binding adapters.",
   "license": "MIT",
   "publishConfig": {
