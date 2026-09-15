@@ -1,9 +1,12 @@
 {
   "name": "@alpacakit/channels",
-  "version": "0.1.0-beta.39",
+  "version": "0.2.0-beta.1",
   "description": "Neutral multi-channel entry definitions with CLI, MCP, and HTTP binding adapters.",
   "license": "MIT",
-  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "type": "module",
   "exports": {
     ".": {
