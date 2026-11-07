@@ -1,0 +1,9 @@
+language js(typescript)
+
+`Record<keyof any, unknown>` as $type where {
+  register_diagnostic(
+    span = $type,
+    message = "Do not use Record<keyof any, unknown> as a contract shape. Model the fields explicitly.",
+    severity = "error"
+  )
+}

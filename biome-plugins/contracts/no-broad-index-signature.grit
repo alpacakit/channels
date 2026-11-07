@@ -1,0 +1,9 @@
+language js(typescript)
+
+r"\[[A-Za-z_$][A-Za-z0-9_$]*\s*:\s*string\]\s*:\s*unknown;?" as $match where {
+  register_diagnostic(
+    span = $match,
+    message = "Do not use broad index signatures with unknown. Model the fields explicitly.",
+    severity = "error"
+  )
+}

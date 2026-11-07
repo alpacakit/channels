@@ -3,7 +3,7 @@
 Run this from the repository root:
 
 ```sh
-node packages/channels/compatibility/verify-packed-consumers.mjs
+node compatibility/verify-packed-consumers.mjs
 ```
 
 The script builds channels, creates the package with `pnpm pack`,
@@ -26,7 +26,7 @@ machine without those cached versions, explicitly allow version resolution:
 
 ```sh
 CHANNELS_CONSUMER_INSTALL_MODE=online \
-  node packages/channels/compatibility/verify-packed-consumers.mjs
+  node compatibility/verify-packed-consumers.mjs
 ```
 
 Only that opt-in mode can access the npm registry. Installation always occurs

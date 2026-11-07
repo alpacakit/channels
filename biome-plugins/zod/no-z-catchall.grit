@@ -1,0 +1,9 @@
+language js(typescript)
+
+`$schema.catchall($value)` as $call where {
+  register_diagnostic(
+    span = $call,
+    message = "Do not use .catchall(...) for runtime contracts. Model extension points explicitly.",
+    severity = "error"
+  )
+}

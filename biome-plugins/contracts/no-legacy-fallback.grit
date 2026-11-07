@@ -1,0 +1,10 @@
+language js(typescript)
+
+`$legacy ?? $current` as $expression where {
+  $legacy <: r"(?:legacy|deprecated|compat|old)[A-Za-z0-9_]*",
+  register_diagnostic(
+    span = $expression,
+    message = "Do not add compatibility fallback expressions by default. Update callers to the canonical field instead.",
+    severity = "error"
+  )
+}

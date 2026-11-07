@@ -1,0 +1,9 @@
+language js(typescript)
+
+`$schema.transform(($value) => Number($value))` as $call where {
+  register_diagnostic(
+    span = $call,
+    message = "Do not use Number() coercion in schema transforms. Validate the raw value first and then parse explicitly.",
+    severity = "error"
+  )
+}

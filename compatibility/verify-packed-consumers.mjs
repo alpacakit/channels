@@ -13,12 +13,12 @@ import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const compatibilityDir = dirname(fileURLToPath(import.meta.url));
-const repositoryRoot = resolve(compatibilityDir, "../../..");
+const repositoryRoot = resolve(compatibilityDir, "..");
 const workRoot = mkdtempSync(join(tmpdir(), "channels-packed-consumers-"));
 const packDir = join(workRoot, "packs");
 mkdirSync(packDir);
 const channelsVersion = JSON.parse(
-  readFileSync(join(repositoryRoot, "packages/channels/package.json")),
+  readFileSync(join(repositoryRoot, "package.json")),
 ).version;
 
 function run(command, args, options = {}) {
@@ -64,14 +64,8 @@ function offlineZodPackage(version) {
   );
 }
 
-run("pnpm", ["--filter", "@alpacakit/channels", "build"]);
-run("pnpm", [
-  "--dir",
-  "packages/channels",
-  "pack",
-  "--pack-destination",
-  packDir,
-]);
+run("pnpm", ["build"]);
+run("pnpm", ["pack", "--pack-destination", packDir]);
 
 const channelsTarball = join(
   packDir,

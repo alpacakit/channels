@@ -1,0 +1,9 @@
+language js(typescript)
+
+`JSON.parse($payload) as Record<PropertyKey, unknown>` as $expression where {
+  register_diagnostic(
+    span = $expression,
+    message = "Do not cast JSON.parse(...) directly to Record<PropertyKey, unknown>. Validate the parsed value first.",
+    severity = "error"
+  )
+}

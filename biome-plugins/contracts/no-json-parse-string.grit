@@ -1,0 +1,9 @@
+language js(typescript)
+
+`JSON.parse(String($value))` as $call where {
+  register_diagnostic(
+    span = $call,
+    message = "Do not rescue malformed boundary values with String() before JSON.parse(). Validate the input first.",
+    severity = "error"
+  )
+}

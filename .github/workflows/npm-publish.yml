@@ -1,0 +1,113 @@
+name: Publish npm package
+
+# Publishes @alpacakit/channels to npm on a `v*` tag.
+# Requires an NPM_TOKEN repo secret with publish rights to the @alpacakit scope.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.19.0"
+          package-manager-cache: false
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify (build + lint + typecheck + test)
+        run: pnpm verify
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22.19.0"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Check package contents
+        run: pnpm publish --dry-run --no-git-checks
+
+      - name: Prepare release metadata
+        id: release
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [[ "$version" == *-* ]]; then
+            dist_tag="beta"
+            prerelease="true"
+          else
+            dist_tag="latest"
+            prerelease="false"
+          fi
+          if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package version $version (expected v$version)."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "dist_tag=$dist_tag" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        shell: bash
+        run: |
+          version="${{ steps.release.outputs.version }}"
+          dist_tag="${{ steps.release.outputs.dist_tag }}"
+          if npm view "@alpacakit/channels@$version" version >/dev/null 2>&1; then
+            echo "@alpacakit/channels@$version already exists on npm; ensuring the dist-tag points to it."
+          else
+            pnpm publish --no-git-checks --tag "$dist_tag"
+          fi
+          npm dist-tag add "@alpacakit/channels@$version" "$dist_tag"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          version="${{ steps.release.outputs.version }}"
+          dist_tag="${{ steps.release.outputs.dist_tag }}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "GitHub release $GITHUB_REF_NAME already exists."
+            exit 0
+          fi
+          release_flags=(--verify-tag --generate-notes --notes "npm $dist_tag: $version")
+          if [[ "${{ steps.release.outputs.prerelease }}" == "true" ]]; then
+            release_flags+=(--prerelease --latest=false)
+          fi
+          gh release create "$GITHUB_REF_NAME" "${release_flags[@]}"

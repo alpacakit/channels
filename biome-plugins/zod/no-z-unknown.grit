@@ -1,0 +1,9 @@
+language js(typescript)
+
+`z.unknown()` as $call where {
+  register_diagnostic(
+    span = $call,
+    message = "Do not use z.unknown() in schema definitions. Validate to a concrete schema.",
+    severity = "error"
+  )
+}

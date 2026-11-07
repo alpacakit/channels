@@ -1,0 +1,110 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.7/schema.json",
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "src/**",
+      "tests/**/*.test.ts"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space"
+  },
+  "linter": {
+    "enabled": true,
+    "domains": {
+      "test": "recommended",
+      "types": "recommended"
+    },
+    "rules": {
+      "recommended": true,
+      "complexity": {
+        "noBannedTypes": "error",
+        "noExcessiveCognitiveComplexity": {
+          "level": "error",
+          "options": {
+            "maxAllowedComplexity": 30
+          }
+        },
+        "noExcessiveLinesPerFunction": {
+          "level": "error",
+          "options": {
+            "maxLines": 120,
+            "skipBlankLines": true
+          }
+        }
+      },
+      "nursery": {
+        "noExcessiveLinesPerFile": {
+          "level": "error",
+          "options": {
+            "maxLines": 800,
+            "skipBlankLines": true
+          }
+        }
+      },
+      "style": {
+        "useNamingConvention": {
+          "level": "error",
+          "options": {
+            "strictCase": false
+          }
+        }
+      },
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noFocusedTests": "error",
+        "noImplicitAnyLet": "error",
+        "noSkippedTests": "error",
+        "noTsIgnore": "error"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": [
+        "src/**/*.ts"
+      ],
+      "plugins": [
+        "./biome-plugins/contracts/no-broad-index-signature.grit",
+        "./biome-plugins/contracts/no-broad-record-keyof-any-unknown.grit",
+        "./biome-plugins/contracts/no-broad-record-propertykey-unknown.grit",
+        "./biome-plugins/contracts/no-broad-record-string-unknown.grit",
+        "./biome-plugins/contracts/no-json-parse-record-propertykey-unknown.grit",
+        "./biome-plugins/contracts/no-json-parse-record-string-unknown.grit",
+        "./biome-plugins/contracts/no-legacy-fallback.grit",
+        "./biome-plugins/contracts/no-json-parse-string.grit",
+        "./biome-plugins/contracts/no-transform-number.grit",
+        "./biome-plugins/contracts/no-transform-string.grit",
+        "./biome-plugins/zod/no-z-any.grit",
+        "./biome-plugins/zod/no-z-catchall.grit",
+        "./biome-plugins/zod/no-z-unknown.grit"
+      ]
+    },
+    {
+      "includes": [
+        "tests/**/*.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveLinesPerFunction": "off"
+          },
+          "nursery": {
+            "noExcessiveLinesPerFile": {
+              "level": "error",
+              "options": {
+                "maxLines": 3500,
+                "skipBlankLines": true
+              }
+            }
+          },
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    }
+  ]
+}
