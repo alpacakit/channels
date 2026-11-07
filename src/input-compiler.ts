@@ -1,7 +1,7 @@
-import type { JsonValue } from "@alpacakit/core";
 import { z } from "zod";
 import type { CompiledParameterBinding } from "./binding-compiler.js";
 import { EntryTreeDefinitionError } from "./definition-error.js";
+import type { JsonValue } from "./json.js";
 import type {
   ErasedEntryDefinition,
   ErasedParameterDefinition,

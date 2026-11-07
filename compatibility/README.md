@@ -6,8 +6,8 @@ Run this from the repository root:
 node packages/channels/compatibility/verify-packed-consumers.mjs
 ```
 
-The script builds core and channels, creates both packages with `pnpm pack`,
-and installs the tarballs into fresh OS temporary directories. It then checks:
+The script builds channels, creates the package with `pnpm pack`,
+and installs the tarball into fresh OS temporary directories. It then checks:
 
 - the strict public declarations and the removed-API negative controls;
 - Hono 4.13.7, MCP SDK 1.30.0, and Commander 14.0.3 runtime registration;

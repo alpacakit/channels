@@ -1,6 +1,6 @@
-import type { JsonValue } from "@alpacakit/core";
 import type { z } from "zod";
 import { EntryTreeDefinitionError } from "./definition-error.js";
+import type { JsonValue } from "./json.js";
 import {
   ownedArray,
   ownedRecord,

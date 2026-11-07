@@ -1,5 +1,5 @@
-import type { JsonValue } from "@alpacakit/core";
 import { z } from "zod";
+import type { JsonValue } from "./json.js";
 import type { ValueCodec, ValueShapeFor } from "./model.js";
 import { ownedArray, ownedRecord, snapshotValueShape } from "./owned.js";
 import { VALUE_SHAPE_KIND } from "./values.js";

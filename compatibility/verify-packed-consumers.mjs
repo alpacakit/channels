@@ -17,9 +17,6 @@ const repositoryRoot = resolve(compatibilityDir, "../../..");
 const workRoot = mkdtempSync(join(tmpdir(), "channels-packed-consumers-"));
 const packDir = join(workRoot, "packs");
 mkdirSync(packDir);
-const coreVersion = JSON.parse(
-  readFileSync(join(repositoryRoot, "packages/core/package.json")),
-).version;
 const channelsVersion = JSON.parse(
   readFileSync(join(repositoryRoot, "packages/channels/package.json")),
 ).version;
@@ -67,9 +64,7 @@ function offlineZodPackage(version) {
   );
 }
 
-run("pnpm", ["--filter", "@alpacakit/core", "build"]);
 run("pnpm", ["--filter", "@alpacakit/channels", "build"]);
-run("pnpm", ["--dir", "packages/core", "pack", "--pack-destination", packDir]);
 run("pnpm", [
   "--dir",
   "packages/channels",
@@ -78,16 +73,12 @@ run("pnpm", [
   packDir,
 ]);
 
-const coreTarball = join(packDir, `alpacakit-core-${coreVersion}.tgz`);
 const channelsTarball = join(
   packDir,
   `alpacakit-channels-${channelsVersion}.tgz`,
 );
 const packedManifest = JSON.parse(
   capture("tar", ["-xOzf", channelsTarball, "package/package.json"]),
-);
-const packedCoreManifest = JSON.parse(
-  capture("tar", ["-xOzf", coreTarball, "package/package.json"]),
 );
 const expectedExportKeys = [".", "./cli", "./http", "./mcp"];
 function assertExactExportKeys(exportKeys) {
@@ -132,7 +123,7 @@ const forbiddenDependencies = [
   "express",
   "commander",
 ];
-for (const manifest of [packedManifest, packedCoreManifest]) {
+for (const manifest of [packedManifest]) {
   for (const field of [
     "dependencies",
     "peerDependencies",
@@ -179,7 +170,7 @@ const npmInstall = [
   "--package-lock=false",
   ...(installMode === "offline" ? ["--offline"] : []),
 ];
-run("npm", [...npmInstall, coreTarball, channelsTarball], { cwd: externalDir });
+run("npm", [...npmInstall, channelsTarball], { cwd: externalDir });
 cpSync(
   join(externalDir, "node_modules/@alpacakit/channels/examples/book-search.ts"),
   join(externalDir, "packed-book-search.ts"),
@@ -226,7 +217,7 @@ for (const version of ["4.3.6", "4.4.3"]) {
     ]);
     zodInstall = join(zodPackDir, `zod-${version}.tgz`);
   }
-  run("npm", [...npmInstall, zodInstall, coreTarball, channelsTarball], {
+  run("npm", [...npmInstall, zodInstall, channelsTarball], {
     cwd: matrixDir,
   });
   run("npx", ["tsc", "-p", "tsconfig.zod-consumer.json"], { cwd: matrixDir });

@@ -1,4 +1,4 @@
-import type { JsonValue } from "@alpacakit/core";
+import type { JsonValue } from "./json.js";
 import type { ValueShape } from "./model.js";
 import { VALUE_SHAPE_KIND } from "./values.js";
 

@@ -1,4 +1,4 @@
-import type { JsonValue } from "@alpacakit/core";
+import type { JsonValue } from "./json.js";
 import type {
   CommandDocumentation,
   EntryTreeDefinition,

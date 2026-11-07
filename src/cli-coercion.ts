@@ -1,5 +1,5 @@
-import type { JsonValue } from "@alpacakit/core";
 import { CLI_VALUE_COERCION, type CliValueCoercion } from "./cli-model.js";
+import type { JsonValue } from "./json.js";
 import type { ValueShape } from "./model.js";
 import { EntryInputError } from "./runtime.js";
 import { coerceStringValue } from "./string-coercion.js";

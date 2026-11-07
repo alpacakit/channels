@@ -1,9 +1,5 @@
-import {
-  CODEC_DECODE_RESULT_KIND,
-  createSchemaRuntimeCodec,
-  type JsonValue,
-} from "@alpacakit/core";
 import type { z } from "zod";
+import type { JsonValue } from "./json.js";
 import type {
   EntryDefinition,
   EntryDefinitionWithOutput,
@@ -61,9 +57,15 @@ function verifyEntryOutputValue(
   if (entry.output === null) {
     throw new Error(`Entry ${entry.name} does not declare an output contract`);
   }
-  const decoded = createSchemaRuntimeCodec(entry.output.schema).decode(value);
-  if (decoded.kind === CODEC_DECODE_RESULT_KIND.invalid) {
-    throw new EntryOutputContractError(entry.name, decoded.issues);
+  const result = entry.output.schema.safeParse(value);
+  if (!result.success) {
+    const issues = result.error.issues.map(
+      (issue) => `${issue.path.join(".") || "$"}: ${issue.message}`,
+    );
+    throw new EntryOutputContractError(
+      entry.name,
+      issues.length > 0 ? issues : [result.error.message],
+    );
   }
-  return decoded.value as JsonValue;
+  return result.data as JsonValue;
 }
