@@ -9,9 +9,13 @@ resource lifetime.
 
 This package is in beta (`0.x.y-beta.N`). Any release, including a new beta
 number, may change the public interface in ways that break existing code.
-Pin an exact version (for example `"@alpacakit/channels": "0.2.0-beta.5"`)
-and read the [release notes](https://github.com/alpacakit/channels/releases)
-before upgrading.
+A plain `npm install` saves a `^` range, which can pick up the next beta.
+Install an exact version and check your code against each new version before
+upgrading:
+
+```sh
+npm install --save-exact @alpacakit/channels@<version>
+```
 
 ## Public entry points
 
