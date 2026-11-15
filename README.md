@@ -5,6 +5,18 @@ for application-owned CLI, HTTP, and MCP hosts. It does not own argv parsing,
 network servers, SDK transports, handler registries, response formatting, or
 resource lifetime.
 
+## Status: beta
+
+This package is in beta (`0.x.y-beta.N`). Any release, including a new beta
+number, may change the public interface in ways that break existing code.
+A plain `npm install` saves a `^` range, which can pick up the next beta.
+Install an exact version and check your code against each new version before
+upgrading:
+
+```sh
+npm install --save-exact @alpacakit/channels@<version>
+```
+
 ## Public entry points
 
 - `@alpacakit/channels`: Entry, Parameter, codec, Endpoint, Node/Tree,
