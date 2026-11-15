@@ -5,6 +5,14 @@ for application-owned CLI, HTTP, and MCP hosts. It does not own argv parsing,
 network servers, SDK transports, handler registries, response formatting, or
 resource lifetime.
 
+## Status: beta
+
+This package is in beta (`0.x.y-beta.N`). Any release, including a new beta
+number, may change the public interface in ways that break existing code.
+Pin an exact version (for example `"@alpacakit/channels": "0.2.0-beta.5"`)
+and read the [release notes](https://github.com/alpacakit/channels/releases)
+before upgrading.
+
 ## Public entry points
 
 - `@alpacakit/channels`: Entry, Parameter, codec, Endpoint, Node/Tree,
