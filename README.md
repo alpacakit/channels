@@ -10,7 +10,7 @@ The package is in beta: any release may change the interface. Install an exact v
 npm install --save-exact @alpacakit/channels@<version> zod
 ```
 
-Requires Node 22.19 or later and zod 4.
+Requires Node 22.19 or later and zod 4.3.6 or later.
 
 ## Example
 
@@ -48,15 +48,15 @@ collectHttpRoutes(AppTree).forEach(async (route) => {
 collectMcpTools(AppTree).forEach((tool) => console.log(tool.name)); // greet
 ```
 
-Complete examples with Hono, the MCP SDK and Commander are in [examples/](examples/README.md).
+A complete example with Hono, the MCP SDK and Commander, including the CLI side (`collectCliCommands`), is in [examples/greeting.ts](https://github.com/alpacakit/channels/blob/main/examples/greeting.ts). [examples/](https://github.com/alpacakit/channels/blob/main/examples/README.md) has one more.
 
 ## Entry points
 
-- `@alpacakit/channels`: entries, parameters, codecs, endpoints and trees
+- `@alpacakit/channels`: entries, parameters, codecs, endpoints, trees and `EntryInputError`
 - `@alpacakit/channels/cli`: CLI bindings and `collectCliCommands`
 - `@alpacakit/channels/http`: HTTP bindings and `collectHttpRoutes`
 - `@alpacakit/channels/mcp`: MCP bindings and `collectMcpTools`
 
 ## License
 
-[MIT License](LICENSE)
+[MIT License](https://github.com/alpacakit/channels/blob/main/LICENSE)
