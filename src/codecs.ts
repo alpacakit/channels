@@ -23,6 +23,15 @@ function makeValueCodec<Raw, Value extends JsonValue>(
   }) as unknown as ValueCodec<Raw, Value>;
 }
 
+function jsonCodec<Raw, Value extends JsonValue>(
+  schema: z.ZodType<Value, Raw>,
+): ValueCodec<Raw, Value> {
+  return defineValueCodec({
+    schema,
+    shape: { kind: VALUE_SHAPE_KIND.json },
+  });
+}
+
 function stringCodec(): ValueCodec<string, string> {
   return defineValueCodec({
     schema: z.string(),
@@ -76,18 +85,18 @@ function stringEnumListCodec<
 }
 
 function stringListCodec(): ValueCodec<readonly string[], readonly string[]> {
-  const element = stringCodec();
   return makeValueCodec<readonly string[], readonly string[]>(
-    z.array(element.schema).readonly(),
+    z.array(z.string()).readonly(),
     {
       kind: VALUE_SHAPE_KIND.array,
-      element: element.shape,
+      element: { kind: VALUE_SHAPE_KIND.string },
     },
   );
 }
 
 export const codecs = {
   define: defineValueCodec,
+  json: jsonCodec,
   string: stringCodec,
   stringList: stringListCodec,
   boolean: booleanCodec,

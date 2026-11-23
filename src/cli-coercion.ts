@@ -3,7 +3,7 @@ import type { JsonValue } from "./json.js";
 import type { ValueShape } from "./model.js";
 import { EntryInputError } from "./runtime.js";
 import { coerceStringValue } from "./string-coercion.js";
-import { ENTRY_INPUT_TARGET_KIND } from "./values.js";
+import { ENTRY_INPUT_TARGET_KIND, VALUE_SHAPE_KIND } from "./values.js";
 
 export function coerceCliArgvValue(
   parameterName: string,
@@ -11,6 +11,13 @@ export function coerceCliArgvValue(
   rawValue: unknown,
   coercion: CliValueCoercion | null,
 ): JsonValue | undefined {
+  if (shape.kind === VALUE_SHAPE_KIND.json) {
+    return coerceExplicitCliScalar(
+      parameterName,
+      rawValue,
+      coercion ?? CLI_VALUE_COERCION.json,
+    );
+  }
   if (coercion !== null) {
     return coerceExplicitCliValue(parameterName, rawValue, coercion);
   }

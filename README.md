@@ -50,6 +50,16 @@ collectMcpTools(AppTree).forEach((tool) => console.log(tool.name)); // greet
 
 A complete example with Hono, the MCP SDK and Commander, including the CLI side (`collectCliCommands`), is in [examples/greeting.ts](https://github.com/alpacakit/channels/blob/main/examples/greeting.ts). [examples/](https://github.com/alpacakit/channels/blob/main/examples/README.md) has one more.
 
+## JSON parameters
+
+Use `codecs.json(schema)` with a Zod schema such as
+`z.object({ steps: z.array(z.string()) })`, or use `z.json()` to accept any JSON value.
+
+- CLI: pass one JSON argument, for example `--plan '{"steps":["build"]}'`.
+- HTTP: use `route.input.parse` on the decoded POST body, for example
+  `{"plan":{"steps":["build"]}}`. `collectHttpRoutes` rejects GET routes that expose JSON parameters.
+- MCP: use `z.toJSONSchema(tool.input.schema, { io: "input" })` to publish the schema for the tool's arguments.
+
 ## Entry points
 
 - `@alpacakit/channels`: entries, parameters, codecs, endpoints, trees and `EntryInputError`

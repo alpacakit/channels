@@ -52,7 +52,11 @@ export type ArrayValueShape<
   readonly element: Element;
 };
 
-export type ValueShape = ScalarValueShape | ArrayValueShape;
+export type JsonValueShape = {
+  readonly kind: typeof VALUE_SHAPE_KIND.json;
+};
+
+export type ValueShape = ScalarValueShape | ArrayValueShape | JsonValueShape;
 
 type ScalarJsonValue = string | number | boolean;
 
@@ -64,7 +68,11 @@ type ScalarValueShapeFor<Value extends JsonValue> = [Value] extends [boolean]
       ? StringValueShape | StringEnumValueShape<readonly Value[]>
       : never;
 
-export type ValueShapeFor<Raw extends JsonValue> = [Raw] extends [
+export type ValueShapeFor<Raw extends JsonValue> =
+  | JsonValueShape
+  | StringCoercibleValueShapeFor<Raw>;
+
+type StringCoercibleValueShapeFor<Raw extends JsonValue> = [Raw] extends [
   ScalarJsonValue,
 ]
   ? ScalarValueShapeFor<Raw>
@@ -72,7 +80,7 @@ export type ValueShapeFor<Raw extends JsonValue> = [Raw] extends [
     ? [Element] extends [ScalarJsonValue]
       ? ArrayValueShape<ScalarValueShapeFor<Element>>
       : StringValueShape
-    : ValueShape;
+    : ScalarValueShape | ArrayValueShape;
 
 /** A schema input (`Raw`) and its decoded output (`Value`) are distinct. */
 type JsonInput<Raw> = Raw extends JsonValue ? Raw : JsonValue;

@@ -3,11 +3,16 @@ import {
   PARAMETER_BINDING_ISSUE_KIND,
   type ParameterBindingIssue,
 } from "./binding-compiler.js";
-import type { HttpEntryBinding, HttpSegment } from "./http-model.js";
+import {
+  HTTP_METHOD,
+  type HttpEntryBinding,
+  type HttpSegment,
+} from "./http-model.js";
 import { describeEntry, type ParameterDescription } from "./introspection.js";
 import type { EntryTreeEndpoint } from "./model.js";
 import { ownedArray, ownedRecord } from "./owned.js";
 import { isChannelPayload, PAYLOAD_KIND } from "./tree-internal.js";
+import { VALUE_SHAPE_KIND } from "./values.js";
 
 export type CompiledHttpEndpoint = {
   readonly endpoint: EntryTreeEndpoint;
@@ -34,6 +39,15 @@ export function compileHttpBinding(
       formatHttpParameterBindingIssue(location, issue),
     ),
   );
+  if (binding.method === HTTP_METHOD.get) {
+    for (const { parameter } of compilation.bindings) {
+      if (parameter.codec.shape.kind === VALUE_SHAPE_KIND.json) {
+        issues.push(
+          `${location}: HTTP GET cannot expose JSON parameter ${parameter.name}`,
+        );
+      }
+    }
+  }
   const parameterNames = compilation.bindings.map(
     (compiled) => compiled.parameter.name,
   );

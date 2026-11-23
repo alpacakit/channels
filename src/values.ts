@@ -18,6 +18,7 @@ export const VALUE_SHAPE_KIND = {
   positiveInteger: "positive_integer",
   stringEnum: "string_enum",
   array: "array",
+  json: "json",
 } as const;
 
 export const ENTRY_INPUT_TARGET_KIND = {
