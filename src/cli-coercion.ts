@@ -12,7 +12,13 @@ export function coerceCliArgvValue(
   coercion: CliValueCoercion | null,
 ): JsonValue | undefined {
   if (shape.kind === VALUE_SHAPE_KIND.json) {
-    return coerceExplicitCliScalar(
+    if (typeof rawValue !== "string") {
+      throw cliParameterInputError(
+        parameterName,
+        "JSON parameters require a single CLI string argument",
+      );
+    }
+    return coerceCliJsonScalar(
       parameterName,
       rawValue,
       coercion ?? CLI_VALUE_COERCION.json,
@@ -31,13 +37,13 @@ function coerceExplicitCliValue(
 ): JsonValue | undefined {
   if (Array.isArray(rawValue)) {
     return rawValue.map((value) =>
-      coerceExplicitCliScalar(parameterName, value, coercion),
+      coerceCliJsonScalar(parameterName, value, coercion),
     );
   }
-  return coerceExplicitCliScalar(parameterName, rawValue, coercion);
+  return coerceCliJsonScalar(parameterName, rawValue, coercion);
 }
 
-function coerceExplicitCliScalar(
+function coerceCliJsonScalar(
   parameterName: string,
   value: unknown,
   coercion: CliValueCoercion,
@@ -51,11 +57,21 @@ function coerceExplicitCliScalar(
     if (coercion === CLI_VALUE_COERCION.jsonOrString) {
       return value;
     }
-    throw new EntryInputError([`Invalid JSON value: ${errorMessage(error)}`], {
-      kind: ENTRY_INPUT_TARGET_KIND.parameter,
+    throw cliParameterInputError(
       parameterName,
-    });
+      `Invalid JSON value: ${errorMessage(error)}`,
+    );
   }
+}
+
+function cliParameterInputError(
+  parameterName: string,
+  issue: string,
+): EntryInputError {
+  return new EntryInputError([issue], {
+    kind: ENTRY_INPUT_TARGET_KIND.parameter,
+    parameterName,
+  });
 }
 
 function errorMessage(error: unknown): string {

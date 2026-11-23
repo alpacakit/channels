@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
   bindCliEntry,
@@ -38,7 +38,10 @@ describe("JSON parameters", () => {
         name: "plan",
         codec: codecs.json(
           z.union([
-            z.object({ steps: z.array(z.string()) }),
+            z.object({
+              steps: z.array(z.string()),
+              note: z.string().optional(),
+            }),
             z.array(z.string()),
             z.string(),
             z.null(),
@@ -58,6 +61,16 @@ describe("JSON parameters", () => {
     });
 
   it("parses a single CLI argument as JSON before applying the schema", () => {
+    expectTypeOf(codecs.stringList().shape.element.kind).toEqualTypeOf<
+      "string" | "string_enum"
+    >();
+    const withDefault = defineParameter({
+      name: "with-default",
+      codec: codecs.json(z.json()),
+      requirement: optional({ default: [{ steps: ["build"] }] }),
+      description: "Plan with a default",
+    });
+    expectTypeOf(withDefault.codec.shape.kind).toEqualTypeOf<"json">();
     const commands = collectCliCommands(
       defineEntryTree(
         node(
@@ -81,6 +94,9 @@ describe("JSON parameters", () => {
       expect(() => input.parseOptions({ plan: "build" })).toThrow(
         EntryInputError,
       );
+      expect(() => input.parseOptions({ plan: ["{oops", "null"] })).toThrow(
+        EntryInputError,
+      );
     });
   });
 
@@ -92,6 +108,9 @@ describe("JSON parameters", () => {
         steps: ["build"],
       });
       expect(input.parse({ plan: "null" })).toBe("null");
+      expect(() => input.parse({ plan: { steps: [false] } })).toThrow(
+        EntryInputError,
+      );
       expect(() => input.parseQuery({ plan: "null" })).toThrow(EntryInputError);
     });
     expect(() =>
@@ -116,6 +135,7 @@ describe("JSON parameters", () => {
                 type: "object",
                 properties: {
                   steps: { type: "array", items: { type: "string" } },
+                  note: { type: "string" },
                 },
                 required: ["steps"],
               },

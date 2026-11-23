@@ -1,6 +1,11 @@
 import { z } from "zod";
-import type { JsonValue } from "./json.js";
-import type { ValueCodec, ValueShapeFor } from "./model.js";
+import type { DecodedJsonValue, JsonValue } from "./json.js";
+import type {
+  JsonValueShape,
+  ValueCodec,
+  ValueShape,
+  ValueShapeFor,
+} from "./model.js";
 import { ownedArray, ownedRecord, snapshotValueShape } from "./owned.js";
 import { VALUE_SHAPE_KIND } from "./values.js";
 
@@ -13,22 +18,22 @@ function defineValueCodec<Raw, Value extends JsonValue>(input: {
   return makeValueCodec(input.schema, input.shape);
 }
 
-function makeValueCodec<Raw, Value extends JsonValue>(
-  schema: z.ZodType<Value>,
-  shape: ValueShapeFor<JsonInput<Raw>>,
-): ValueCodec<Raw, Value> {
+function makeValueCodec<
+  Raw,
+  Value extends DecodedJsonValue,
+  Shape extends ValueShape = ValueShapeFor<JsonInput<Raw>>,
+>(schema: z.ZodType<Value, Raw>, shape: Shape): ValueCodec<Raw, Value, Shape> {
   return ownedRecord({
     schema,
     shape: snapshotValueShape(shape),
-  }) as unknown as ValueCodec<Raw, Value>;
+  });
 }
 
-function jsonCodec<Raw, Value extends JsonValue>(
+function jsonCodec<Raw, Value extends DecodedJsonValue>(
   schema: z.ZodType<Value, Raw>,
-): ValueCodec<Raw, Value> {
-  return defineValueCodec({
-    schema,
-    shape: { kind: VALUE_SHAPE_KIND.json },
+): ValueCodec<Raw, Value, JsonValueShape> {
+  return makeValueCodec(schema, {
+    kind: VALUE_SHAPE_KIND.json,
   });
 }
 
@@ -85,11 +90,12 @@ function stringEnumListCodec<
 }
 
 function stringListCodec(): ValueCodec<readonly string[], readonly string[]> {
+  const element = stringCodec();
   return makeValueCodec<readonly string[], readonly string[]>(
-    z.array(z.string()).readonly(),
+    z.array(element.schema).readonly(),
     {
       kind: VALUE_SHAPE_KIND.array,
-      element: { kind: VALUE_SHAPE_KIND.string },
+      element: element.shape,
     },
   );
 }

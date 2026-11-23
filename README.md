@@ -52,8 +52,16 @@ A complete example with Hono, the MCP SDK and Commander, including the CLI side 
 
 ## JSON parameters
 
-Use `codecs.json(schema)` with a Zod schema such as
-`z.object({ steps: z.array(z.string()) })`, or use `z.json()` to accept any JSON value.
+Pass a Zod schema to `codecs.json`. Use `z.json()` to accept any JSON value.
+
+```ts
+const plan = defineParameter({
+  name: "plan",
+  codec: codecs.json(z.object({ steps: z.array(z.string()) })),
+  requirement: optional(),
+  description: "Steps to run",
+});
+```
 
 - CLI: pass one JSON argument, for example `--plan '{"steps":["build"]}'`.
 - HTTP: use `route.input.parse` on the decoded POST body, for example
