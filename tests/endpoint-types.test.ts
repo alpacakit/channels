@@ -15,6 +15,8 @@ import {
   type EntryTreeNode,
   type OutputFor,
   optional,
+  type ParameterDefinition,
+  type ParameterRequirement,
   type ParameterSet,
   type ParameterValues,
   required,
@@ -282,6 +284,29 @@ const HeterogeneousNode = defineEntryNode({
 
 describe("typed Endpoint and collector boundaries", () => {
   it("constructs endpoints through generic consumer helpers", () => {
+    function forwardParameter<R extends ParameterRequirement<string>>(
+      parameter: ParameterDefinition<"name", string, string, R>,
+    ) {
+      return defineParameter(parameter);
+    }
+
+    function makeLimitParameter<R extends ParameterRequirement<number>>(
+      requirement: R,
+    ) {
+      return defineParameter({
+        name: "limit",
+        codec: codecs.positiveInteger(),
+        requirement,
+        description: "Limit",
+      });
+    }
+
+    expectTypeOf(forwardParameter(GenericParameter)).toEqualTypeOf(
+      GenericParameter,
+    );
+    expectTypeOf(
+      makeLimitParameter(required()).requirement.kind,
+    ).toEqualTypeOf<"required">();
     expect(GenericEndpoint.handler({ name: "world" })).toBe("world");
     expect(
       GenericParameterConfigEndpoint.handler({ name: "parameter-set" }),
@@ -493,6 +518,18 @@ describe("typed Endpoint and collector boundaries", () => {
         // @ts-expect-error authored defaults use the codec Raw type, not decoded Value
         requirement: optional({ default: 2 }),
         description: "Wrong default",
+      });
+      defineParameter({
+        name: "wrong-plan-default",
+        codec: codecs.json(
+          z.object({
+            steps: z.array(z.string()),
+            note: z.string().optional(),
+          }),
+        ),
+        // @ts-expect-error a JSON default must match the authored schema
+        requirement: optional({ default: { steps: [23] } }),
+        description: "Wrong plan default",
       });
     }
     expect(true).toBe(true);

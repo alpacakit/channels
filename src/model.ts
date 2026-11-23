@@ -82,18 +82,11 @@ export type ValueShapeFor<Raw extends JsonValue> = [Raw] extends [
 type JsonInput<Raw> = Raw extends JsonValue ? Raw : JsonValue;
 
 /** Authored defaults are frozen and copied before decoding. */
-type MutableJsonInput<Value> = Value extends object
-  ? { -readonly [Key in keyof Value]: MutableJsonInput<Value[Key]> }
-  : Value;
-
-type CheckDefaultInput<Raw, Requirement> =
-  Requirement extends OptionalWithDefaultParameterRequirement<infer Default>
-    ? Default extends JsonInput<Raw>
-      ? unknown
-      : MutableJsonInput<Default> extends JsonInput<Raw>
-        ? unknown
-        : never
-    : unknown;
+type JsonDefaultInput<Raw> = [z.input<ReturnType<typeof z.json>>] extends [Raw]
+  ? JsonValue
+  : Raw extends DecodedJsonValue
+    ? JsonValue & Readonly<Raw>
+    : JsonValue;
 
 export interface ValueCodec<
   Raw = JsonValue,
@@ -135,9 +128,9 @@ export type ParameterDefinition<
   Name extends string,
   Raw,
   Value extends DecodedJsonValue,
-  Requirement extends ParameterRequirement<JsonValue> = ParameterRequirement<
-    JsonInput<Raw>
-  >,
+  Requirement extends ParameterRequirement<
+    JsonDefaultInput<Raw>
+  > = ParameterRequirement<JsonDefaultInput<Raw>>,
   Shape extends ValueShape = ValueShapeFor<JsonInput<Raw>>,
 > = {
   readonly name: Name;
@@ -325,14 +318,12 @@ export function defineParameter<
   const Name extends string,
   Raw,
   Value extends DecodedJsonValue,
-  const Requirement extends ParameterRequirement<JsonValue>,
+  const Requirement extends ParameterRequirement<JsonDefaultInput<Raw>>,
   const Shape extends ValueShape = ValueShapeFor<JsonInput<Raw>>,
 >(
-  parameter: ParameterDefinition<Name, Raw, Value, Requirement, Shape> & {
-    readonly requirement: CheckDefaultInput<NoInfer<Raw>, NoInfer<Requirement>>;
-  },
+  parameter: ParameterDefinition<Name, Raw, Value, Requirement, Shape>,
 ): ParameterDefinition<Name, Raw, Value, Requirement, Shape> {
-  return snapshotParameter<Name, Raw, Value, Requirement, Shape>(parameter);
+  return snapshotParameter(parameter);
 }
 
 export function defineEntry<
@@ -415,7 +406,7 @@ function snapshotParameter<
   const Name extends string,
   Raw,
   Value extends DecodedJsonValue,
-  const Requirement extends ParameterRequirement<JsonValue>,
+  const Requirement extends ParameterRequirement<JsonDefaultInput<Raw>>,
   Shape extends ValueShape,
 >(
   parameter: ParameterDefinition<Name, Raw, Value, Requirement, Shape>,
