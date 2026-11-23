@@ -250,6 +250,7 @@ function compileCliOption(
           ? CLI_OPTION_VALUE_MODE.commaOrRepeat
           : CLI_OPTION_VALUE_MODE.repeat,
       };
+    case VALUE_SHAPE_KIND.json:
     case VALUE_SHAPE_KIND.positiveInteger:
     case VALUE_SHAPE_KIND.string:
     case VALUE_SHAPE_KIND.stringEnum:

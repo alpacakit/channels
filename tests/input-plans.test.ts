@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
 import {
   bindCliEntry,
@@ -13,6 +13,7 @@ import {
   defineEntryNode,
   defineEntryTree,
   defineParameter,
+  type EntryChannelBinding,
   EntryInputError,
   EntryTreeDefinitionError,
   optional,
@@ -28,6 +29,126 @@ function caughtError(invoke: () => unknown): unknown {
   }
   throw new Error("Expected invocation to throw");
 }
+
+describe("JSON parameters", () => {
+  const entry = defineEntry({
+    name: "configure",
+    parameters: [
+      defineParameter({
+        name: "plan",
+        codec: codecs.json(
+          z.union([
+            z.object({
+              steps: z.array(z.string()),
+              note: z.string().optional(),
+            }),
+            z.array(z.string()),
+            z.string(),
+            z.null(),
+          ]),
+        ),
+        requirement: optional(),
+        description: "Plan",
+      }),
+    ],
+    project: ({ values }) => values.plan,
+  });
+  const node = (...channels: readonly EntryChannelBinding[]) =>
+    defineEntryNode({
+      name: "configure",
+      description: "Configure a plan",
+      endpoints: [defineEntryEndpoint(entry, { handler: () => {}, channels })],
+    });
+
+  it("parses a single CLI argument as JSON before applying the schema", () => {
+    expectTypeOf(codecs.stringList().shape.element.kind).toEqualTypeOf<
+      "string" | "string_enum"
+    >();
+    const withDefault = defineParameter({
+      name: "with-default",
+      codec: codecs.json(z.json()),
+      requirement: optional({ default: [{ steps: ["build"] }] }),
+      description: "Plan with a default",
+    });
+    expectTypeOf(withDefault.codec.shape.kind).toEqualTypeOf<"json">();
+    const commands = collectCliCommands(
+      defineEntryTree(
+        node(
+          bindCliEntry({
+            parameters: [{ kind: "option", parameterName: "plan" }],
+          }),
+        ),
+      ),
+    );
+    expect(commands.root.commands.length).toBe(1);
+    commands.root.commands.forEach(({ input }) => {
+      expect(input.parseOptions({ plan: '{"steps":["build"]}' })).toEqual({
+        steps: ["build"],
+      });
+      expect(input.parseOptions({ plan: '["null","true"]' })).toEqual([
+        "null",
+        "true",
+      ]);
+      expect(input.parseOptions({ plan: '"build"' })).toBe("build");
+      expect(input.parseOptions({ plan: "null" })).toBeNull();
+      expect(() => input.parseOptions({ plan: "build" })).toThrow(
+        EntryInputError,
+      );
+      expect(() => input.parseOptions({ plan: ["{oops", "null"] })).toThrow(
+        EntryInputError,
+      );
+    });
+  });
+
+  it("passes decoded HTTP body values through and rejects GET bindings", () => {
+    const routes = collectHttpRoutes(node(bindHttpEntry({ method: "POST" })));
+    expect(routes.length).toBe(1);
+    routes.forEach(({ input }) => {
+      expect(input.parse({ plan: { steps: ["build"] } })).toEqual({
+        steps: ["build"],
+      });
+      expect(input.parse({ plan: "null" })).toBe("null");
+      expect(() => input.parse({ plan: { steps: [false] } })).toThrow(
+        EntryInputError,
+      );
+      expect(() => input.parseQuery({ plan: "null" })).toThrow(EntryInputError);
+    });
+    expect(() =>
+      collectHttpRoutes(node(bindHttpEntry({ method: "GET" }))),
+    ).toThrow(EntryTreeDefinitionError);
+    expect(
+      collectHttpRoutes(
+        node(bindHttpEntry({ method: "GET", exclude: ["plan"] })),
+      ).length,
+    ).toBe(1);
+  });
+
+  it("exposes the authored JSON schema in MCP tool input", () => {
+    const tools = collectMcpTools(node(bindMcpEntry({ name: "configure" })));
+    expect(tools.length).toBe(1);
+    tools.forEach(({ input }) => {
+      expect(z.toJSONSchema(input.schema, { io: "input" })).toMatchObject({
+        properties: {
+          plan: {
+            anyOf: [
+              {
+                type: "object",
+                properties: {
+                  steps: { type: "array", items: { type: "string" } },
+                  note: { type: "string" },
+                },
+                required: ["steps"],
+              },
+              { type: "array", items: { type: "string" } },
+              { type: "string" },
+              { type: "null" },
+            ],
+          },
+        },
+      });
+    });
+  });
+});
 
 describe("compiled input plans", () => {
   it("separates schema, project, and handler and runs each once", () => {

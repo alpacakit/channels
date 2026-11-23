@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { EntryTreeDefinitionError } from "./definition-error.js";
-import type { JsonValue } from "./json.js";
+import type { DecodedJsonValue, JsonValue } from "./json.js";
 import {
   ownedArray,
   ownedRecord,
@@ -52,7 +52,11 @@ export type ArrayValueShape<
   readonly element: Element;
 };
 
-export type ValueShape = ScalarValueShape | ArrayValueShape;
+export type JsonValueShape = {
+  readonly kind: typeof VALUE_SHAPE_KIND.json;
+};
+
+export type ValueShape = ScalarValueShape | ArrayValueShape | JsonValueShape;
 
 type ScalarJsonValue = string | number | boolean;
 
@@ -72,17 +76,25 @@ export type ValueShapeFor<Raw extends JsonValue> = [Raw] extends [
     ? [Element] extends [ScalarJsonValue]
       ? ArrayValueShape<ScalarValueShapeFor<Element>>
       : StringValueShape
-    : ValueShape;
+    : ScalarValueShape | ArrayValueShape;
 
 /** A schema input (`Raw`) and its decoded output (`Value`) are distinct. */
 type JsonInput<Raw> = Raw extends JsonValue ? Raw : JsonValue;
 
+/** Authored defaults are frozen and copied before decoding. */
+type JsonDefaultInput<Raw> = [z.input<ReturnType<typeof z.json>>] extends [Raw]
+  ? JsonValue
+  : Raw extends DecodedJsonValue
+    ? JsonValue & Readonly<Raw>
+    : JsonValue;
+
 export interface ValueCodec<
   Raw = JsonValue,
-  Value extends JsonValue = JsonValue,
+  Value extends DecodedJsonValue = JsonValue,
+  Shape extends ValueShape = ValueShapeFor<JsonInput<Raw>>,
 > {
   readonly schema: z.ZodType<Value, Raw>;
-  readonly shape: ValueShapeFor<JsonInput<Raw>>;
+  readonly shape: Shape;
 }
 
 export type ErasedValueCodec = {
@@ -115,13 +127,14 @@ export type ParameterRequirement<Raw extends JsonValue> =
 export type ParameterDefinition<
   Name extends string,
   Raw,
-  Value extends JsonValue,
+  Value extends DecodedJsonValue,
   Requirement extends ParameterRequirement<
-    JsonInput<Raw>
-  > = ParameterRequirement<JsonInput<Raw>>,
+    JsonDefaultInput<Raw>
+  > = ParameterRequirement<JsonDefaultInput<Raw>>,
+  Shape extends ValueShape = ValueShapeFor<JsonInput<Raw>>,
 > = {
   readonly name: Name;
-  readonly codec: ValueCodec<Raw, Value>;
+  readonly codec: ValueCodec<Raw, Value, Shape>;
   readonly requirement: Requirement;
   readonly description: string;
 };
@@ -139,10 +152,9 @@ export type RawValueMap = {
   readonly [key: string]: unknown;
 };
 
-type ParameterValue<Parameter extends ErasedParameterDefinition> =
-  Parameter["codec"] extends ValueCodec<infer _Raw, infer Value>
-    ? Value
-    : never;
+type ParameterValue<Parameter extends ErasedParameterDefinition> = z.output<
+  Parameter["codec"]["schema"]
+>;
 
 type ParameterMaterialization<Parameter extends ParameterSet[number]> =
   Parameter["requirement"]["kind"] extends
@@ -305,11 +317,12 @@ export type EntryDefinitionInputWithOutput<
 export function defineParameter<
   const Name extends string,
   Raw,
-  Value extends JsonValue,
-  const Requirement extends ParameterRequirement<JsonInput<Raw>>,
+  Value extends DecodedJsonValue,
+  const Requirement extends ParameterRequirement<JsonDefaultInput<Raw>>,
+  const Shape extends ValueShape = ValueShapeFor<JsonInput<Raw>>,
 >(
-  parameter: ParameterDefinition<Name, Raw, Value, Requirement>,
-): ParameterDefinition<Name, Raw, Value, Requirement> {
+  parameter: ParameterDefinition<Name, Raw, Value, Requirement, Shape>,
+): ParameterDefinition<Name, Raw, Value, Requirement, Shape> {
   return snapshotParameter(parameter);
 }
 
@@ -392,11 +405,12 @@ export function optional<Raw extends JsonValue>(input?: {
 function snapshotParameter<
   const Name extends string,
   Raw,
-  Value extends JsonValue,
-  const Requirement extends ParameterRequirement<JsonInput<Raw>>,
+  Value extends DecodedJsonValue,
+  const Requirement extends ParameterRequirement<JsonDefaultInput<Raw>>,
+  Shape extends ValueShape,
 >(
-  parameter: ParameterDefinition<Name, Raw, Value, Requirement>,
-): ParameterDefinition<Name, Raw, Value, Requirement>;
+  parameter: ParameterDefinition<Name, Raw, Value, Requirement, Shape>,
+): ParameterDefinition<Name, Raw, Value, Requirement, Shape>;
 function snapshotParameter(
   parameter: ErasedParameterDefinition,
 ): ErasedParameterDefinition;

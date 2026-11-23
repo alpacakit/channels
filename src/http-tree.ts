@@ -178,17 +178,24 @@ function coerceHttpQueryValue(
   parameter: ErasedParameterDefinition,
   raw: unknown,
 ): unknown {
-  if (parameter.codec.shape.kind === VALUE_SHAPE_KIND.array) {
+  const { shape } = parameter.codec;
+  if (shape.kind === VALUE_SHAPE_KIND.json) {
+    throw parameterInputError(
+      parameter.name,
+      "JSON parameters must be sent in the HTTP body",
+    );
+  }
+  if (shape.kind === VALUE_SHAPE_KIND.array) {
     if (!isHttpQueryValue(raw)) {
       throw parameterInputError(
         parameter.name,
         "HTTP query value must be a string or string array",
       );
     }
-    return coerceStringValue(parameter.codec.shape, raw);
+    return coerceStringValue(shape, raw);
   }
   const scalar = scalarQueryValue(parameter.name, raw);
-  return coerceStringValue(parameter.codec.shape, scalar);
+  return coerceStringValue(shape, scalar);
 }
 
 function scalarQueryValue(parameterName: string, raw: unknown): string {

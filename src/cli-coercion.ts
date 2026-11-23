@@ -3,7 +3,7 @@ import type { JsonValue } from "./json.js";
 import type { ValueShape } from "./model.js";
 import { EntryInputError } from "./runtime.js";
 import { coerceStringValue } from "./string-coercion.js";
-import { ENTRY_INPUT_TARGET_KIND } from "./values.js";
+import { ENTRY_INPUT_TARGET_KIND, VALUE_SHAPE_KIND } from "./values.js";
 
 export function coerceCliArgvValue(
   parameterName: string,
@@ -11,6 +11,19 @@ export function coerceCliArgvValue(
   rawValue: unknown,
   coercion: CliValueCoercion | null,
 ): JsonValue | undefined {
+  if (shape.kind === VALUE_SHAPE_KIND.json) {
+    if (typeof rawValue !== "string") {
+      throw cliParameterInputError(
+        parameterName,
+        "JSON parameters require a single CLI string argument",
+      );
+    }
+    return coerceCliJsonScalar(
+      parameterName,
+      rawValue,
+      coercion ?? CLI_VALUE_COERCION.json,
+    );
+  }
   if (coercion !== null) {
     return coerceExplicitCliValue(parameterName, rawValue, coercion);
   }
@@ -24,13 +37,13 @@ function coerceExplicitCliValue(
 ): JsonValue | undefined {
   if (Array.isArray(rawValue)) {
     return rawValue.map((value) =>
-      coerceExplicitCliScalar(parameterName, value, coercion),
+      coerceCliJsonScalar(parameterName, value, coercion),
     );
   }
-  return coerceExplicitCliScalar(parameterName, rawValue, coercion);
+  return coerceCliJsonScalar(parameterName, rawValue, coercion);
 }
 
-function coerceExplicitCliScalar(
+function coerceCliJsonScalar(
   parameterName: string,
   value: unknown,
   coercion: CliValueCoercion,
@@ -44,11 +57,21 @@ function coerceExplicitCliScalar(
     if (coercion === CLI_VALUE_COERCION.jsonOrString) {
       return value;
     }
-    throw new EntryInputError([`Invalid JSON value: ${errorMessage(error)}`], {
-      kind: ENTRY_INPUT_TARGET_KIND.parameter,
+    throw cliParameterInputError(
       parameterName,
-    });
+      `Invalid JSON value: ${errorMessage(error)}`,
+    );
   }
+}
+
+function cliParameterInputError(
+  parameterName: string,
+  issue: string,
+): EntryInputError {
+  return new EntryInputError([issue], {
+    kind: ENTRY_INPUT_TARGET_KIND.parameter,
+    parameterName,
+  });
 }
 
 function errorMessage(error: unknown): string {

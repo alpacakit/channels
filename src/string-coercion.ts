@@ -1,9 +1,9 @@
 import type { JsonValue } from "./json.js";
-import type { ValueShape } from "./model.js";
+import type { ArrayValueShape, ScalarValueShape } from "./model.js";
 import { VALUE_SHAPE_KIND } from "./values.js";
 
 export function coerceStringValue(
-  shape: ValueShape,
+  shape: ScalarValueShape | ArrayValueShape,
   rawValue: unknown,
 ): JsonValue {
   if (shape.kind === VALUE_SHAPE_KIND.array) {
@@ -13,7 +13,10 @@ export function coerceStringValue(
   return coerceStringScalarValue(shape, rawValue);
 }
 
-function coerceStringScalarValue(shape: ValueShape, value: unknown): JsonValue {
+function coerceStringScalarValue(
+  shape: ScalarValueShape,
+  value: unknown,
+): JsonValue {
   if (shape.kind === VALUE_SHAPE_KIND.boolean) {
     if (value === "true") {
       return true;
